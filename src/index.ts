@@ -3,8 +3,11 @@
 
 export const packageName = "packport";
 
+export { checkPackRepository, formatDiagnostics } from "./core/check";
 export { discoverPackRepository } from "./core/discovery";
 export { parseMarkdownContract } from "./core/markdown";
+export { runCli } from "./cli";
+export type { CheckResult } from "./core/check";
 export type {
   AssetContract,
   AssetIndex,
