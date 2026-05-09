@@ -1,0 +1,16 @@
+// ABOUTME: Defines packport's lint and format behavior with Biome.
+// ABOUTME: Provides one stable quality gate for source, tests, and docs-adjacent files.
+{
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  }
+}

@@ -1,0 +1,6 @@
+# ABOUTME: Installs a pre-commit hook that runs packport's full quality gate.
+# ABOUTME: Keeps commits from bypassing lint, formatting, typecheck, and tests.
+pre-commit:
+  commands:
+    check:
+      run: bun run check

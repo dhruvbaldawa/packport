@@ -1,0 +1,7 @@
+# ABOUTME: Ignores local dependency, build, and editor artifacts for packport.
+# ABOUTME: Keeps generated transient files out of commits.
+node_modules/
+dist/
+coverage/
+.DS_Store
+*.log
