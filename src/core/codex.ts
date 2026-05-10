@@ -1,8 +1,9 @@
 // ABOUTME: Generates Codex plugin packages and marketplace metadata from portable packs.
 // ABOUTME: Emits local .packs/codex packages while keeping profile overlays out of output.
 
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative, resolve, sep } from "node:path";
+import { isBuiltInControlPack } from "./control-packs";
 import { discoverPackRepository } from "./discovery";
 import {
   readPackLock,
@@ -30,6 +31,10 @@ export type GenerateCodexResult = {
     readonly plugins: number;
     readonly skills: number;
   };
+};
+
+export type GenerateCodexOptions = {
+  readonly includeControlPacks?: boolean;
 };
 
 type ParsedFrontmatter = {
@@ -92,6 +97,7 @@ type CodexPluginPlan = {
 export async function generateCodexOutput(
   rootPath: string,
   outputPath = join(rootPath, CODEX_DEFAULT_OUTPUT_DIRECTORY),
+  options: GenerateCodexOptions = {},
 ): Promise<GenerateCodexResult> {
   const discovery = await discoverPackRepository(rootPath);
   const diagnostics: Diagnostic[] = [
@@ -119,7 +125,7 @@ export async function generateCodexOutput(
   }
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    for (const pack of discovery.index.packs) {
+    for (const pack of userGenerationPacks(discovery.index.packs, options.includeControlPacks)) {
       const plan = await planCodexPlugin(
         pack,
         rootPath,
@@ -145,6 +151,7 @@ export async function generateCodexOutput(
       rootPath,
       marketplacePath,
       entries,
+      preservedOutputs,
       operations,
       generatedPaths,
       diagnostics,
@@ -159,6 +166,14 @@ export async function generateCodexOutput(
         diagnostics.push(diagnostic);
       }
     }
+
+    for (const staleOutput of staleCodexPackageOutputs(rootPath, preservedOutputs, operations)) {
+      const diagnostic = await validateStaleCodexOutputPath(rootPath, staleOutput);
+
+      if (diagnostic) {
+        diagnostics.push(diagnostic);
+      }
+    }
   }
 
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -168,6 +183,8 @@ export async function generateCodexOutput(
     skills = 0;
   } else {
     marketplaceEntries = entries.length;
+
+    await removeStaleCodexPackageOutputs(rootPath, preservedOutputs, operations);
 
     for (const operation of operations) {
       await executeWriteOperation(operation, files);
@@ -199,6 +216,13 @@ export async function generateCodexOutput(
       skills,
     },
   };
+}
+
+function userGenerationPacks(
+  packs: readonly PackIndex[],
+  includeControlPacks = false,
+): readonly PackIndex[] {
+  return includeControlPacks ? packs : packs.filter((pack) => !isBuiltInControlPack(pack.id));
 }
 
 /** Converts a generated Codex file path into a structured lockfile output entry. */
@@ -579,6 +603,7 @@ async function planCodexMarketplace(
   rootPath: string,
   marketplacePath: string,
   entries: readonly CodexMarketplaceEntry[],
+  previousOutputs: readonly LockedOutput[],
   operations: WriteOperation[],
   generatedPaths: string[],
   diagnostics: Diagnostic[],
@@ -591,17 +616,34 @@ async function planCodexMarketplace(
   }
 
   const generatedEntriesByName = new Map(entries.map((entry) => [entry.name, entry]));
+  const previousGeneratedPackageNames = new Set(
+    previousOutputs
+      .filter(
+        (output) =>
+          output.target === "codex" &&
+          output.kind === "package" &&
+          output.packageName !== undefined,
+      )
+      .map((output) => output.packageName as string),
+  );
   const replacedNames = new Set<string>();
-  const preservedEntries = existing.marketplace.plugins.map((entry) => {
+  const preservedEntries: CodexMarketplaceEntry[] = [];
+
+  for (const entry of existing.marketplace.plugins) {
     const replacement = generatedEntriesByName.get(entry.name);
 
     if (replacement) {
       replacedNames.add(entry.name);
-      return replacement;
+      preservedEntries.push(replacement);
+      continue;
     }
 
-    return entry;
-  });
+    if (previousGeneratedPackageNames.has(entry.name)) {
+      continue;
+    }
+
+    preservedEntries.push(entry);
+  }
   const appendedEntries = entries.filter((entry) => !replacedNames.has(entry.name));
   const marketplace: CodexMarketplace = {
     interface: existing.marketplace.interface,
@@ -626,6 +668,104 @@ async function planCodexMarketplace(
     generatedPaths,
     diagnostics,
   );
+}
+
+async function removeStaleCodexPackageOutputs(
+  rootPath: string,
+  previousOutputs: readonly LockedOutput[],
+  operations: readonly WriteOperation[],
+): Promise<void> {
+  for (const staleOutput of staleCodexPackageOutputs(rootPath, previousOutputs, operations)) {
+    const path = join(rootPath, staleOutput.path);
+
+    await assertPathDoesNotContainSymlinks(path);
+    await rm(path, { force: true });
+  }
+}
+
+function staleCodexPackageOutputs(
+  rootPath: string,
+  previousOutputs: readonly LockedOutput[],
+  operations: readonly WriteOperation[],
+): readonly LockedOutput[] {
+  const currentOutputPaths = new Set(
+    operations.map((operation) => toPosixPath(relative(rootPath, operation.targetPath))),
+  );
+
+  return previousOutputs.filter(
+    (output) =>
+      output.target === "codex" &&
+      output.kind === "package" &&
+      !currentOutputPaths.has(output.path),
+  );
+}
+
+async function validateStaleCodexOutputPath(
+  rootPath: string,
+  output: LockedOutput,
+): Promise<Diagnostic | undefined> {
+  if (output.path === "" || output.path.includes("\\") || output.path.split("/").includes("..")) {
+    return {
+      code: "invalid-stale-codex-output",
+      message: `Stale Codex output path must be a safe relative path: ${output.path}.`,
+      path: join(rootPath, output.path),
+      severity: "error",
+    };
+  }
+
+  const resolvedRootPath = resolve(rootPath);
+  const resolvedPath = resolve(rootPath, output.path);
+
+  if (isOutsideRelativePath(relative(resolvedRootPath, resolvedPath))) {
+    return {
+      code: "invalid-stale-codex-output",
+      message: `Stale Codex output path must stay inside the pack repository: ${output.path}.`,
+      path: resolvedPath,
+      severity: "error",
+    };
+  }
+
+  const relativeToCodexOutput = relative(
+    resolve(rootPath, CODEX_DEFAULT_OUTPUT_DIRECTORY),
+    resolvedPath,
+  );
+
+  if (relativeToCodexOutput === "" || isOutsideRelativePath(relativeToCodexOutput)) {
+    return {
+      code: "invalid-stale-codex-output",
+      message: `Stale Codex output path must stay under ${CODEX_DEFAULT_OUTPUT_DIRECTORY}: ${output.path}.`,
+      path: resolvedPath,
+      severity: "error",
+    };
+  }
+
+  try {
+    await assertPathDoesNotContainSymlinks(resolvedPath);
+    const stats = await lstat(resolvedPath);
+
+    if (!stats.isFile()) {
+      return {
+        code: "invalid-stale-codex-output",
+        message: `Stale Codex output path must be a regular file: ${output.path}.`,
+        path: resolvedPath,
+        severity: "error",
+      };
+    }
+
+    return undefined;
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return undefined;
+    }
+
+    return {
+      code: isSymlinkPathError(error) ? "unsafe-stale-codex-output" : "invalid-stale-codex-output",
+      message:
+        error instanceof Error ? error.message : "Stale Codex output could not be validated.",
+      path: resolvedPath,
+      severity: "error",
+    };
+  }
 }
 
 async function readCodexMarketplace(path: string): Promise<ReadMarketplaceResult> {

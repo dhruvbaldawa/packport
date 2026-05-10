@@ -1,7 +1,7 @@
 // ABOUTME: Verifies OpenCode output generation from portable pack source.
 // ABOUTME: Covers command/agent adaptation and skill directory copying.
 
-import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -83,6 +83,260 @@ payload: SKILL.md
       await readFile(join(outputPath, ".opencode/skills/debugging/reference/examples.md"), "utf8"),
     ).toBe("# Examples\n");
     await expect(lstat(join(outputPath, ".opencode/skills/debugging/ASSET.md"))).rejects.toThrow();
+  });
+
+  test("skips built-in control packs unless explicitly included", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary.skills).toBe(1);
+    await expect(
+      lstat(join(outputPath, ".opencode/skills/configure-pack/SKILL.md")),
+    ).rejects.toThrow();
+    await expect(lstat(join(outputPath, ".opencode/skills/check-pack/SKILL.md"))).rejects.toThrow();
+    expect(
+      await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8"),
+    ).toContain("name: debugging");
+  });
+
+  test("includes built-in control packs when requested for dogfood output", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath, {
+      includeControlPacks: true,
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary.skills).toBe(3);
+    expect(
+      await readFile(join(outputPath, ".opencode/skills/configure-pack/SKILL.md"), "utf8"),
+    ).toContain("name: configure-pack");
+    expect(
+      await readFile(join(outputPath, ".opencode/skills/check-pack/SKILL.md"), "utf8"),
+    ).toContain("name: check-pack");
+  });
+
+  test("removes stale OpenCode control-pack output when default generation skips it", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const dogfoodResult = await generateOpenCodeOutput(rootPath, outputPath, {
+      includeControlPacks: true,
+    });
+    const defaultResult = await generateOpenCodeOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(dogfoodResult.diagnostics).toEqual([]);
+    expect(defaultResult.diagnostics).toEqual([]);
+    await expect(
+      lstat(join(outputPath, ".opencode/skills/configure-pack/SKILL.md")),
+    ).rejects.toThrow();
+    await expect(lstat(join(outputPath, ".opencode/skills/check-pack/SKILL.md"))).rejects.toThrow();
+    expect(lockResult.lock?.outputs.some((output) => output.path.includes("check-pack"))).toBe(
+      false,
+    );
+    expect(lockResult.lock?.outputs.some((output) => output.path.includes("configure-pack"))).toBe(
+      false,
+    );
+  });
+
+  test("rejects stale OpenCode output directories before writing current output", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const dogfoodResult = await generateOpenCodeOutput(rootPath, outputPath, {
+      includeControlPacks: true,
+    });
+    const staleOutputPath = join(outputPath, ".opencode/skills/check-pack/SKILL.md");
+    await rm(staleOutputPath, { force: true });
+    await mkdir(staleOutputPath, { recursive: true });
+    await writeFile(
+      join(rootPath, "packs/essentials/skills/debugging/SKILL.md"),
+      "# Debugging v2\n",
+    );
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(dogfoodResult.diagnostics).toEqual([]);
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-stale-opencode-output",
+      message:
+        "Stale OpenCode output path must be a regular file: .packs/opencode/.opencode/skills/check-pack/SKILL.md.",
+      path: staleOutputPath,
+      severity: "error",
+    });
+    expect(
+      await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8"),
+    ).not.toContain("v2");
+  });
+
+  test("rejects symlinked stale OpenCode output components before cleanup", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    const outsidePath = await createTempRepository("packport-opencode-outside-");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const dogfoodResult = await generateOpenCodeOutput(rootPath, outputPath, {
+      includeControlPacks: true,
+    });
+    await rm(join(outputPath, ".opencode/skills/check-pack"), {
+      force: true,
+      recursive: true,
+    });
+    await mkdir(join(outsidePath, "check-pack"), { recursive: true });
+    await writeFile(join(outsidePath, "check-pack/SKILL.md"), "outside\n");
+    await symlink(join(outsidePath, "check-pack"), join(outputPath, ".opencode/skills/check-pack"));
+    await writeFile(
+      join(rootPath, "packs/essentials/skills/debugging/SKILL.md"),
+      "# Debugging v2\n",
+    );
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(dogfoodResult.diagnostics).toEqual([]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "unsafe-stale-opencode-output",
+    );
+    expect(await readFile(join(outsidePath, "check-pack/SKILL.md"), "utf8")).toBe("outside\n");
+    expect(
+      await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8"),
+    ).not.toContain("v2");
+  });
+
+  test("rejects stale OpenCode package locks outside the OpenCode output root", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    const readmePath = join(rootPath, "README.md");
+    await writeFileTree(rootPath, {
+      "README.md": "# Keep me\n",
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+    });
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
+      { kind: "package", packageName: "opencode", path: readmePath, target: "opencode" },
+    ]);
+    await writePackLock(rootPath, lock);
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-stale-opencode-output",
+      message: "Stale OpenCode output path must stay under .packs/opencode: README.md.",
+      path: readmePath,
+      severity: "error",
+    });
+    expect(await readFile(readmePath, "utf8")).toBe("# Keep me\n");
+    await expect(lstat(join(outputPath, ".opencode/skills/debugging/SKILL.md"))).rejects.toThrow();
   });
 
   test("normalizes Claude triple-brace command arguments without portable-ref diagnostics", async () => {

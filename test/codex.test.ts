@@ -1,7 +1,7 @@
 // ABOUTME: Verifies Codex plugin package and marketplace generation from portable packs.
 // ABOUTME: Covers command-to-skill conversion, marketplace preservation, and safe writes.
 
-import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -178,6 +178,289 @@ payload: SKILL.md
       },
     ]);
     await expect(lstat(join(outputPath, "essentials/skills/debugging/ASSET.md"))).rejects.toThrow();
+  });
+
+  test("skips built-in control packs unless explicitly included", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary.plugins).toBe(1);
+    expect(
+      JSON.parse(await readFile(join(rootPath, CODEX_MARKETPLACE_FILE), "utf8")).plugins,
+    ).toEqual([
+      {
+        category: "Productivity",
+        name: "essentials",
+        policy: {
+          authentication: "ON_INSTALL",
+          installation: "AVAILABLE",
+        },
+        source: {
+          path: "./.packs/codex/essentials",
+          source: "local",
+        },
+      },
+    ]);
+    await expect(
+      lstat(join(outputPath, "configport-control/.codex-plugin/plugin.json")),
+    ).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "packport-control/.codex-plugin/plugin.json")),
+    ).rejects.toThrow();
+  });
+
+  test("includes built-in control packs when requested for dogfood output", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const result = await generateCodexOutput(rootPath, outputPath, { includeControlPacks: true });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary.plugins).toBe(3);
+    expect(
+      JSON.parse(await readFile(join(rootPath, CODEX_MARKETPLACE_FILE), "utf8")).plugins.map(
+        (plugin: { name: string }) => plugin.name,
+      ),
+    ).toEqual(["configport-control", "essentials", "packport-control"]);
+    expect(
+      await readFile(join(outputPath, "configport-control/skills/configure-pack/SKILL.md"), "utf8"),
+    ).toContain("name: configure-pack");
+    expect(
+      await readFile(join(outputPath, "packport-control/skills/check-pack/SKILL.md"), "utf8"),
+    ).toContain("name: check-pack");
+  });
+
+  test("removes stale Codex control-pack output when default generation skips it", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const dogfoodResult = await generateCodexOutput(rootPath, outputPath, {
+      includeControlPacks: true,
+    });
+    const defaultResult = await generateCodexOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(dogfoodResult.diagnostics).toEqual([]);
+    expect(defaultResult.diagnostics).toEqual([]);
+    await expect(
+      lstat(join(outputPath, "configport-control/skills/configure-pack/SKILL.md")),
+    ).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "packport-control/skills/check-pack/SKILL.md")),
+    ).rejects.toThrow();
+    expect(
+      JSON.parse(await readFile(join(rootPath, CODEX_MARKETPLACE_FILE), "utf8")).plugins.map(
+        (plugin: { name: string }) => plugin.name,
+      ),
+    ).toEqual(["essentials"]);
+    expect(
+      lockResult.lock?.outputs.some((output) => output.packageName === "packport-control"),
+    ).toBe(false);
+    expect(
+      lockResult.lock?.outputs.some((output) => output.packageName === "configport-control"),
+    ).toBe(false);
+  });
+
+  test("rejects stale Codex output directories before writing current output", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const dogfoodResult = await generateCodexOutput(rootPath, outputPath, {
+      includeControlPacks: true,
+    });
+    const staleOutputPath = join(outputPath, "packport-control/skills/check-pack/SKILL.md");
+    await rm(staleOutputPath, { force: true });
+    await mkdir(staleOutputPath, { recursive: true });
+    await writeFile(
+      join(rootPath, "packs/essentials/skills/debugging/SKILL.md"),
+      "# Debugging v2\n",
+    );
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+
+    expect(dogfoodResult.diagnostics).toEqual([]);
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-stale-codex-output",
+      message:
+        "Stale Codex output path must be a regular file: .packs/codex/packport-control/skills/check-pack/SKILL.md.",
+      path: staleOutputPath,
+      severity: "error",
+    });
+    expect(
+      await readFile(join(outputPath, "essentials/skills/debugging/SKILL.md"), "utf8"),
+    ).not.toContain("v2");
+  });
+
+  test("rejects symlinked stale Codex output components before cleanup", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    const outsidePath = await createTempRepository("packport-codex-outside-");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const dogfoodResult = await generateCodexOutput(rootPath, outputPath, {
+      includeControlPacks: true,
+    });
+    await rm(join(outputPath, "packport-control/skills/check-pack"), {
+      force: true,
+      recursive: true,
+    });
+    await mkdir(join(outsidePath, "check-pack"), { recursive: true });
+    await writeFile(join(outsidePath, "check-pack/SKILL.md"), "outside\n");
+    await symlink(
+      join(outsidePath, "check-pack"),
+      join(outputPath, "packport-control/skills/check-pack"),
+    );
+    await writeFile(
+      join(rootPath, "packs/essentials/skills/debugging/SKILL.md"),
+      "# Debugging v2\n",
+    );
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+
+    expect(dogfoodResult.diagnostics).toEqual([]);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "unsafe-stale-codex-output",
+    );
+    expect(await readFile(join(outsidePath, "check-pack/SKILL.md"), "utf8")).toBe("outside\n");
+    expect(
+      await readFile(join(outputPath, "essentials/skills/debugging/SKILL.md"), "utf8"),
+    ).not.toContain("v2");
+  });
+
+  test("rejects stale Codex package locks outside the Codex output root", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const readmePath = join(rootPath, "README.md");
+    await writeFileTree(rootPath, {
+      "README.md": "# Keep me\n",
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+    });
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
+      { kind: "package", packageName: "bad", path: readmePath, target: "codex" },
+    ]);
+    await writePackLock(rootPath, lock);
+
+    const result = await generateCodexOutput(rootPath, join(rootPath, ".packs/codex"));
+
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-stale-codex-output",
+      message: "Stale Codex output path must stay under .packs/codex: README.md.",
+      path: readmePath,
+      severity: "error",
+    });
+    expect(await readFile(readmePath, "utf8")).toBe("# Keep me\n");
+    await expect(
+      lstat(join(rootPath, ".packs/codex/essentials/skills/debugging/SKILL.md")),
+    ).rejects.toThrow();
   });
 
   test("preserves existing marketplace metadata and replaces generated entries", async () => {

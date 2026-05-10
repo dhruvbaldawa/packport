@@ -11,8 +11,8 @@ From the packport repo:
 ```bash
 bun src/cli.ts check .
 bun src/cli.ts claude generate .
-bun src/cli.ts opencode generate . .packs/opencode
-bun src/cli.ts codex generate .
+bun src/cli.ts opencode generate . .packs/opencode --include-control-packs
+bun src/cli.ts codex generate . --include-control-packs
 bun src/cli.ts control-plugin claude .packs/claude/packport
 bun src/cli.ts control-plugin claude configport .packs/claude/configport
 bun src/cli.ts control-plugin claude-marketplace .
@@ -24,6 +24,9 @@ These are the committed dogfood entry points:
 - Claude Code: `.claude-plugin/marketplace.json`
 - Codex: `.agents/plugins/marketplace.json`
 - OpenCode: `.packs/opencode/`
+
+The control-pack inclusion flag is only for this repository's generated control packs. Normal
+portable pack repositories should let generation skip tool-owned control packs.
 
 ## Use The Harness As The Shell
 

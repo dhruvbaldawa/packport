@@ -33,6 +33,7 @@ export {
   formatCodexDiagnostics,
   generateCodexOutput,
 } from "./core/codex";
+export { isBuiltInControlPack } from "./core/control-packs";
 export {
   CONFIGPORT_CONTROL_PACK_DIRECTORY,
   CONFIGPORT_CONTROL_PACK_NAME,
@@ -64,7 +65,7 @@ export {
 export { parseMarkdownContract } from "./core/markdown";
 export { generateOpenCodeOutput } from "./core/opencode";
 export { runCli } from "./cli";
-export type { GenerateClaudeResult } from "./core/claude";
+export type { GenerateClaudeOptions, GenerateClaudeResult } from "./core/claude";
 export type {
   ClaudeMigrationAsset,
   ClaudeMigrationAssetKind,
@@ -80,7 +81,7 @@ export type {
   ClaudeMigrationWriteResult,
 } from "./core/claude-migration";
 export type { CheckResult } from "./core/check";
-export type { GenerateCodexResult } from "./core/codex";
+export type { GenerateCodexOptions, GenerateCodexResult } from "./core/codex";
 export type {
   ApplyConfigportOverlayOptions,
   ApplyConfigportOverlayResult,
@@ -105,7 +106,7 @@ export type {
 } from "./core/control-plugin";
 export type { HarnessTarget, PortableRefRenderResult } from "./core/harness-refs";
 export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";
-export type { GenerateOpenCodeResult } from "./core/opencode";
+export type { GenerateOpenCodeOptions, GenerateOpenCodeResult } from "./core/opencode";
 export type {
   AssetContract,
   AssetIndex,

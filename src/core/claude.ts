@@ -3,6 +3,7 @@
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { isBuiltInControlPack } from "./control-packs";
 import { discoverPackRepository } from "./discovery";
 import {
   readPackLock,
@@ -30,6 +31,10 @@ export type GenerateClaudeResult = {
     readonly plugins: number;
     readonly skills: number;
   };
+};
+
+export type GenerateClaudeOptions = {
+  readonly includeControlPacks?: boolean;
 };
 
 type ClaudePluginManifest = {
@@ -71,6 +76,7 @@ type ClaudePluginPlan = {
 export async function generateClaudeOutput(
   rootPath: string,
   outputPath = join(rootPath, CLAUDE_DEFAULT_OUTPUT_DIRECTORY),
+  options: GenerateClaudeOptions = {},
 ): Promise<GenerateClaudeResult> {
   const discovery = await discoverPackRepository(rootPath);
   const diagnostics: Diagnostic[] = [
@@ -98,7 +104,7 @@ export async function generateClaudeOutput(
   }
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    for (const pack of discovery.index.packs) {
+    for (const pack of userGenerationPacks(discovery.index.packs, options.includeControlPacks)) {
       const plan = await planClaudePlugin(
         pack,
         rootPath,
@@ -189,6 +195,13 @@ export async function generateClaudeOutput(
       skills,
     },
   };
+}
+
+function userGenerationPacks(
+  packs: readonly PackIndex[],
+  includeControlPacks = false,
+): readonly PackIndex[] {
+  return includeControlPacks ? packs : packs.filter((pack) => !isBuiltInControlPack(pack.id));
 }
 
 /** Formats Claude generation diagnostics for CLI and control-skill surfaces. */

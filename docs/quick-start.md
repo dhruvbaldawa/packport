@@ -31,8 +31,8 @@ lockfile drift when `pack.lock.yaml` exists.
 
 ```bash
 bun src/cli.ts claude generate .
-bun src/cli.ts opencode generate . .packs/opencode
-bun src/cli.ts codex generate .
+bun src/cli.ts opencode generate . .packs/opencode --include-control-packs
+bun src/cli.ts codex generate . --include-control-packs
 bun src/cli.ts control-plugin claude .packs/claude/packport
 bun src/cli.ts control-plugin claude configport .packs/claude/configport
 bun src/cli.ts control-plugin claude-marketplace .
@@ -46,6 +46,9 @@ These commands produce:
 - `.agents/plugins/marketplace.json` for Codex local plugins.
 - `.packs/claude/packport/` and `.packs/claude/configport/`.
 - `.claude-plugin/marketplace.json` for Claude Code local plugins.
+
+The `--include-control-packs` flag is for packport's dogfood control packs. Ordinary pack
+repositories should omit it so tool-owned control workflows do not appear as user pack plugins.
 
 ## 3. Run The Full Quality Gate
 

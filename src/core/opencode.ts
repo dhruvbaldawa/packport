@@ -1,11 +1,12 @@
 // ABOUTME: Generates OpenCode repo-local output from portable pack source.
 // ABOUTME: Adapts command and agent markdown while copying skill payload directories.
 
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, parse, resolve } from "node:path";
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join, parse, relative, resolve, sep } from "node:path";
+import { isBuiltInControlPack } from "./control-packs";
 import { discoverPackRepository } from "./discovery";
 import { readPackLock, writePackGenerationLock, type LockedOutput } from "./lockfile";
-import type { AssetIndex, Diagnostic } from "./types";
+import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 
 export type GenerateOpenCodeResult = {
   readonly diagnostics: readonly Diagnostic[];
@@ -18,6 +19,10 @@ export type GenerateOpenCodeResult = {
     readonly files: number;
     readonly skills: number;
   };
+};
+
+export type GenerateOpenCodeOptions = {
+  readonly includeControlPacks?: boolean;
 };
 
 type ParsedFrontmatter = {
@@ -41,6 +46,7 @@ const PACKPORT_TOOL_VERSION = "0.0.0";
 export async function generateOpenCodeOutput(
   rootPath: string,
   outputPath: string,
+  options: GenerateOpenCodeOptions = {},
 ): Promise<GenerateOpenCodeResult> {
   const discovery = await discoverPackRepository(rootPath);
   const diagnostics: Diagnostic[] = [...discovery.diagnostics];
@@ -71,7 +77,7 @@ export async function generateOpenCodeOutput(
   }
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    for (const pack of discovery.index.packs) {
+    for (const pack of userGenerationPacks(discovery.index.packs, options.includeControlPacks)) {
       for (const asset of pack.assets) {
         if (asset.kind === "command") {
           const generated = await writeAdaptedMarkdownAsset(
@@ -140,6 +146,14 @@ export async function generateOpenCodeOutput(
         diagnostics.push(diagnostic);
       }
     }
+
+    for (const staleOutput of staleOpenCodeOutputs(rootPath, preservedOutputs, operations)) {
+      const diagnostic = await validateStaleOpenCodeOutputPath(rootPath, staleOutput);
+
+      if (diagnostic) {
+        diagnostics.push(diagnostic);
+      }
+    }
   }
 
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -147,6 +161,8 @@ export async function generateOpenCodeOutput(
     agents = 0;
     skills = 0;
   } else {
+    await removeStaleOpenCodeOutputs(rootPath, preservedOutputs, operations);
+
     for (const operation of operations) {
       await executeWriteOperation(operation, files);
     }
@@ -174,6 +190,113 @@ export async function generateOpenCodeOutput(
     rootPath,
     summary: { agents, commands, files: files.length, skills },
   };
+}
+
+async function removeStaleOpenCodeOutputs(
+  rootPath: string,
+  previousOutputs: readonly LockedOutput[],
+  operations: readonly WriteOperation[],
+): Promise<void> {
+  for (const staleOutput of staleOpenCodeOutputs(rootPath, previousOutputs, operations)) {
+    const path = join(rootPath, staleOutput.path);
+
+    await assertPathDoesNotContainSymlinks(path);
+    await rm(path, { force: true });
+  }
+}
+
+function staleOpenCodeOutputs(
+  rootPath: string,
+  previousOutputs: readonly LockedOutput[],
+  operations: readonly WriteOperation[],
+): readonly LockedOutput[] {
+  const currentOutputPaths = new Set(
+    operations.map((operation) => toPosixPath(relative(rootPath, operation.targetPath))),
+  );
+
+  return previousOutputs.filter(
+    (output) =>
+      output.target === "opencode" &&
+      output.kind === "package" &&
+      !currentOutputPaths.has(output.path),
+  );
+}
+
+async function validateStaleOpenCodeOutputPath(
+  rootPath: string,
+  output: LockedOutput,
+): Promise<Diagnostic | undefined> {
+  if (output.path === "" || output.path.includes("\\") || output.path.split("/").includes("..")) {
+    return {
+      code: "invalid-stale-opencode-output",
+      message: `Stale OpenCode output path must be a safe relative path: ${output.path}.`,
+      path: join(rootPath, output.path),
+      severity: "error",
+    };
+  }
+
+  const resolvedRootPath = resolve(rootPath);
+  const resolvedPath = resolve(rootPath, output.path);
+
+  if (isOutsideRelativePath(relative(resolvedRootPath, resolvedPath))) {
+    return {
+      code: "invalid-stale-opencode-output",
+      message: `Stale OpenCode output path must stay inside the pack repository: ${output.path}.`,
+      path: resolvedPath,
+      severity: "error",
+    };
+  }
+
+  const relativeToOpenCodeOutput = relative(
+    resolve(rootPath, OPENCODE_DEFAULT_OUTPUT_DIRECTORY),
+    resolvedPath,
+  );
+
+  if (relativeToOpenCodeOutput === "" || isOutsideRelativePath(relativeToOpenCodeOutput)) {
+    return {
+      code: "invalid-stale-opencode-output",
+      message: `Stale OpenCode output path must stay under ${OPENCODE_DEFAULT_OUTPUT_DIRECTORY}: ${output.path}.`,
+      path: resolvedPath,
+      severity: "error",
+    };
+  }
+
+  try {
+    await assertPathDoesNotContainSymlinks(resolvedPath);
+    const stats = await lstat(resolvedPath);
+
+    if (!stats.isFile()) {
+      return {
+        code: "invalid-stale-opencode-output",
+        message: `Stale OpenCode output path must be a regular file: ${output.path}.`,
+        path: resolvedPath,
+        severity: "error",
+      };
+    }
+
+    return undefined;
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return undefined;
+    }
+
+    return {
+      code: isSymlinkPathError(error)
+        ? "unsafe-stale-opencode-output"
+        : "invalid-stale-opencode-output",
+      message:
+        error instanceof Error ? error.message : "Stale OpenCode output could not be validated.",
+      path: resolvedPath,
+      severity: "error",
+    };
+  }
+}
+
+function userGenerationPacks(
+  packs: readonly PackIndex[],
+  includeControlPacks = false,
+): readonly PackIndex[] {
+  return includeControlPacks ? packs : packs.filter((pack) => !isBuiltInControlPack(pack.id));
 }
 
 /** Ensures generated OpenCode outputs are repo-owned and lockfile-trackable. */
@@ -719,6 +842,14 @@ function isSymlinkPathError(error: unknown): boolean {
   return (
     error instanceof Error && error.message.startsWith("Generated path must not contain symlinks:")
   );
+}
+
+function isOutsideRelativePath(value: string): boolean {
+  return value === ".." || value.startsWith(`..${sep}`) || value.startsWith("../");
+}
+
+function toPosixPath(path: string): string {
+  return path.split(sep).join("/");
 }
 
 /** Lstats existing path components so generated IO does not traverse symlinks. */

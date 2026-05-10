@@ -69,8 +69,10 @@ describe("runCli", () => {
   const usage =
     "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
   const claudeUsage = "Usage: packport claude generate <pack-root> [output-root]";
-  const opencodeUsage = "Usage: packport opencode generate <pack-root> <output-root>";
-  const codexUsage = "Usage: packport codex generate <pack-root> [output-root]";
+  const opencodeUsage =
+    "Usage: packport opencode generate <pack-root> <output-root> [--include-control-packs]";
+  const codexUsage =
+    "Usage: packport codex generate <pack-root> [output-root] [--include-control-packs]";
   const configportUsage =
     "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
 
@@ -416,10 +418,39 @@ describe("runCli", () => {
     );
   });
 
+  test("accepts explicit control-pack inclusion for OpenCode dogfood generation", async () => {
+    const rootPath = await createValidPackRepositoryWithControlPack();
+    const outputPath = join(rootPath, ".packs/opencode");
+
+    const result = await runCli([
+      "opencode",
+      "generate",
+      rootPath,
+      outputPath,
+      "--include-control-packs",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(
+      `Generated OpenCode output at ${outputPath} with 1 command(s), 0 agent(s), and 1 skill(s).`,
+    );
+    expect(
+      await readFile(join(outputPath, ".opencode/skills/check-pack/SKILL.md"), "utf8"),
+    ).toContain("name: check-pack");
+  });
+
   test("reports OpenCode generation usage errors", async () => {
     const result = await runCli(["opencode", "generate", "only-root"]);
+    const unknownOption = await runCli([
+      "opencode",
+      "generate",
+      "root",
+      "output",
+      "--include-control-packs=false",
+    ]);
 
     expect(result).toEqual({ exitCode: 1, stderr: opencodeUsage });
+    expect(unknownOption).toEqual({ exitCode: 1, stderr: opencodeUsage });
   });
 
   test("generates Codex output and marketplace metadata", async () => {
@@ -454,10 +485,36 @@ describe("runCli", () => {
     });
   });
 
+  test("accepts explicit control-pack inclusion for Codex dogfood generation", async () => {
+    const rootPath = await createValidPackRepositoryWithControlPack();
+
+    const result = await runCli(["codex", "generate", rootPath, "--include-control-packs"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(
+      `Generated Codex output at ${join(rootPath, ".packs/codex")} with 2 plugin(s), 2 skill(s), 0 agent(s), and 2 marketplace entry(s).`,
+    );
+    expect(
+      await readFile(
+        join(rootPath, ".packs/codex/packport-control/skills/check-pack/SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("name: check-pack");
+    expect(
+      JSON.parse(
+        await readFile(join(rootPath, ".agents/plugins/marketplace.json"), "utf8"),
+      ).plugins.map((plugin: { name: string }) => plugin.name),
+    ).toEqual(["essentials", "packport-control"]);
+  });
+
   test("reports Codex generation usage errors", async () => {
     const result = await runCli(["codex", "generate"]);
+    const tooManyPaths = await runCli(["codex", "generate", "root", "output", "extra"]);
+    const unknownOption = await runCli(["codex", "generate", "root", "--wat"]);
 
     expect(result).toEqual({ exitCode: 1, stderr: codexUsage });
+    expect(tooManyPaths).toEqual({ exitCode: 1, stderr: codexUsage });
+    expect(unknownOption).toEqual({ exitCode: 1, stderr: codexUsage });
   });
 
   test("stores and applies configport overlays", async () => {
@@ -785,6 +842,24 @@ description: Core workflows.
 `,
   );
   await writeFile(join(rootPath, "packs/essentials/commands/commit/COMMAND.md"), "# Commit\n");
+
+  return rootPath;
+}
+
+/** Creates a valid temporary pack repository with one built-in control pack. */
+async function createValidPackRepositoryWithControlPack(): Promise<string> {
+  const rootPath = await createValidPackRepository();
+  await mkdir(join(rootPath, "packs/packport-control/skills/check-pack"), { recursive: true });
+  await writeFile(
+    join(rootPath, "packs/packport-control/PACK.md"),
+    `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+  );
+  await writeFile(join(rootPath, "packs/packport-control/skills/check-pack/SKILL.md"), "# Check\n");
 
   return rootPath;
 }

@@ -37,8 +37,10 @@ const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
   "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
 const CLAUDE_USAGE = "Usage: packport claude generate <pack-root> [output-root]";
-const OPENCODE_USAGE = "Usage: packport opencode generate <pack-root> <output-root>";
-const CODEX_USAGE = "Usage: packport codex generate <pack-root> [output-root]";
+const OPENCODE_USAGE =
+  "Usage: packport opencode generate <pack-root> <output-root> [--include-control-packs]";
+const CODEX_USAGE =
+  "Usage: packport codex generate <pack-root> [output-root] [--include-control-packs]";
 const CONFIGPORT_USAGE =
   "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
 
@@ -97,6 +99,15 @@ type CliResult = {
   readonly stderr?: string;
   readonly stdout?: string;
 };
+
+type ParsedGenerateArgs =
+  | {
+      readonly includeControlPacks: boolean;
+      readonly outputPath?: string;
+      readonly rootPath: string;
+      readonly status: "ok";
+    }
+  | { readonly status: "error" };
 
 /** Runs the packport CLI with explicit argv for tests and the process argv for production. */
 export async function runCli(argv: readonly string[]): Promise<CliResult> {
@@ -267,17 +278,15 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
   }
 
   if (command === "opencode") {
-    const [subcommand, rootPath, outputPath] = args;
+    const parsed = parseGenerateArgs(args, { outputRequired: true });
 
-    if (subcommand !== "generate" || rootPath === undefined || outputPath === undefined) {
+    if (parsed.status === "error" || parsed.outputPath === undefined) {
       return { exitCode: 1, stderr: OPENCODE_USAGE };
     }
 
-    if (args.length > 3) {
-      return { exitCode: 1, stderr: OPENCODE_USAGE };
-    }
-
-    const result = await generateOpenCodeOutput(rootPath, outputPath);
+    const result = await generateOpenCodeOutput(parsed.rootPath, parsed.outputPath, {
+      includeControlPacks: parsed.includeControlPacks,
+    });
     const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
     const diagnostics = result.diagnostics
       .map(
@@ -294,17 +303,15 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
   }
 
   if (command === "codex") {
-    const [subcommand, rootPath, outputPath] = args;
+    const parsed = parseGenerateArgs(args, { outputRequired: false });
 
-    if (subcommand !== "generate" || rootPath === undefined) {
+    if (parsed.status === "error") {
       return { exitCode: 1, stderr: CODEX_USAGE };
     }
 
-    if (args.length > 3) {
-      return { exitCode: 1, stderr: CODEX_USAGE };
-    }
-
-    const result = await generateCodexOutput(rootPath, outputPath);
+    const result = await generateCodexOutput(parsed.rootPath, parsed.outputPath, {
+      includeControlPacks: parsed.includeControlPacks,
+    });
     const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
     const diagnostics = formatCodexDiagnostics(result.diagnostics);
     const summary = `Generated Codex output at ${result.outputPath} with ${result.summary.plugins} plugin(s), ${result.summary.skills} skill(s), ${result.summary.agents} agent(s), and ${result.summary.marketplaceEntries} marketplace entry(s).`;
@@ -404,6 +411,54 @@ async function runConfigportCli(args: readonly string[]): Promise<CliResult> {
   }
 
   return { exitCode: 1, stderr: CONFIGPORT_USAGE };
+}
+
+function parseGenerateArgs(
+  args: readonly string[],
+  options: { readonly outputRequired: boolean },
+): ParsedGenerateArgs {
+  const [subcommand, ...rest] = args;
+
+  if (subcommand !== "generate") {
+    return { status: "error" };
+  }
+
+  const paths: string[] = [];
+  let includeControlPacks = false;
+
+  for (const arg of rest) {
+    if (arg === "--include-control-packs") {
+      includeControlPacks = true;
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      return { status: "error" };
+    }
+
+    paths.push(arg);
+  }
+
+  if (paths.length < 1 || paths.length > 2) {
+    return { status: "error" };
+  }
+
+  if (options.outputRequired && paths.length !== 2) {
+    return { status: "error" };
+  }
+
+  const [rootPath, outputPath] = paths;
+
+  if (rootPath === undefined || (options.outputRequired && outputPath === undefined)) {
+    return { status: "error" };
+  }
+
+  return {
+    includeControlPacks,
+    ...(outputPath ? { outputPath } : {}),
+    rootPath,
+    status: "ok",
+  };
 }
 
 function parseConfigportOverlayPutArgs(args: readonly string[]): ParsedConfigportOverlayPutArgs {

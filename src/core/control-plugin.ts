@@ -3,17 +3,21 @@
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { CONFIGPORT_CONTROL_PACK_DIRECTORY, CONTROL_PACK_DIRECTORY } from "./control-packs";
 import { readPackLock, refreshPackLockGeneratedOutput, writePackLock } from "./lockfile";
+
+export {
+  CONFIGPORT_CONTROL_PACK_DIRECTORY,
+  CONFIGPORT_CONTROL_PACK_NAME,
+  CONTROL_PACK_DIRECTORY,
+  CONTROL_PACK_NAME,
+} from "./control-packs";
 
 export const CONTROL_PLUGIN_NAME = "packport";
 export const CONTROL_PLUGIN_STATE_FILE = ".packport-control-plugin.json";
-export const CONTROL_PACK_NAME = "packport-control";
-export const CONTROL_PACK_DIRECTORY = join("packs", CONTROL_PACK_NAME);
 export const CONTROL_SKILLS_DIRECTORY = "skills";
 export const CLAUDE_CONTROL_MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
 export const CONFIGPORT_CONTROL_PLUGIN_NAME = "configport";
-export const CONFIGPORT_CONTROL_PACK_NAME = "configport-control";
-export const CONFIGPORT_CONTROL_PACK_DIRECTORY = join("packs", CONFIGPORT_CONTROL_PACK_NAME);
 
 export type ControlPluginKind = "configport" | "packport";
 

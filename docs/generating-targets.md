@@ -35,6 +35,8 @@ The OpenCode emitter writes:
 
 Current behavior:
 
+- built-in control packs are skipped unless `--include-control-packs` is passed for packport
+  dogfood output.
 - commands become OpenCode command markdown.
 - agents become OpenCode subagent markdown.
 - skills are copied into `.opencode/skills/`.
@@ -63,6 +65,8 @@ The Codex emitter writes one plugin per source pack:
 
 Current behavior:
 
+- built-in control packs are skipped unless `--include-control-packs` is passed for packport
+  dogfood output.
 - packs become Codex plugins.
 - skills become Codex skills.
 - commands become Codex skills.
@@ -94,6 +98,8 @@ The Claude emitter writes one plugin per source pack:
 
 Current behavior:
 
+- built-in control packs are skipped; use `control-plugin claude ...` for Claude Code control
+  plugins.
 - packs become Claude Code plugins.
 - commands become Claude slash-command markdown.
 - agents become Claude subagent markdown.

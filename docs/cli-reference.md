@@ -27,12 +27,15 @@ WARNING <code> <path>: <message>
 ## opencode generate
 
 ```bash
-packport opencode generate <pack-root> <output-root>
+packport opencode generate <pack-root> <output-root> [--include-control-packs]
 ```
 
 Generates OpenCode repo-local output from `packs/` under `<pack-root>`.
 
 Summary output includes generated command, agent, and skill counts.
+
+By default, built-in `packport-control` and `configport-control` packs are skipped. Use
+`--include-control-packs` only when regenerating packport's dogfood control output.
 
 ## claude generate
 
@@ -45,16 +48,22 @@ pack root. When `output-root` is omitted, output goes to `<pack-root>/.packs/cla
 
 Summary output includes plugin, command, agent, skill, and marketplace entry counts.
 
+Built-in control packs are skipped. Use `control-plugin claude ...` to package Claude Code control
+plugins.
+
 ## codex generate
 
 ```bash
-packport codex generate <pack-root> [output-root]
+packport codex generate <pack-root> [output-root] [--include-control-packs]
 ```
 
 Generates one Codex plugin per pack and writes `.agents/plugins/marketplace.json` under the pack
 root. When `output-root` is omitted, output goes to `<pack-root>/.packs/codex`.
 
 Summary output includes plugin, skill, agent, and marketplace entry counts.
+
+By default, built-in `packport-control` and `configport-control` packs are skipped. Use
+`--include-control-packs` only when regenerating packport's dogfood control output.
 
 ## control-plugin claude
 

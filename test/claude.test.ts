@@ -203,6 +203,53 @@ description: Core workflows.
     });
   });
 
+  test("skips built-in control packs during default user-pack generation", async () => {
+    const rootPath = await createTempRepository("packport-claude-source-");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+
+    const result = await generateClaudeOutput(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary.plugins).toBe(1);
+    expect(
+      JSON.parse(await readFile(join(rootPath, CLAUDE_MARKETPLACE_FILE), "utf8")).plugins,
+    ).toEqual([
+      {
+        description: "Core workflows.",
+        name: "essentials",
+        source: ".packs/claude/essentials",
+      },
+    ]);
+    await expect(
+      lstat(join(rootPath, ".packs/claude/configport-control/.claude-plugin/plugin.json")),
+    ).rejects.toThrow();
+    await expect(
+      lstat(join(rootPath, ".packs/claude/packport-control/.claude-plugin/plugin.json")),
+    ).rejects.toThrow();
+  });
+
   test("removes stale generated Claude packages when packs disappear", async () => {
     const rootPath = await createTempRepository("packport-claude-source-");
     await writeFileTree(rootPath, {
