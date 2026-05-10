@@ -110,6 +110,66 @@ describe("control plugin generation", () => {
     );
   });
 
+  test("records repo-local Claude control plugin packages in pack.lock.yaml", async () => {
+    const sourcePath = await createDualControlSkillSource();
+    const packportOutputPath = join(sourcePath, ".packs/claude/packport");
+    const configportOutputPath = join(sourcePath, ".packs/claude/configport");
+
+    await generateClaudeControlPlugin(sourcePath, packportOutputPath, "1.2.3");
+    await generateClaudeControlPlugin(sourcePath, configportOutputPath, "1.2.3", "configport");
+    const lockResult = await readPackLock(sourcePath);
+    const lock = requireLock(lockResult.lock);
+    const discovery = await discoverPackRepository(sourcePath);
+
+    expect(lockResult.diagnostics).toEqual([]);
+    expect(
+      lock.outputs.map((output) => ({
+        kind: output.kind,
+        ...(output.packageName ? { packageName: output.packageName } : {}),
+        path: output.path,
+        target: output.target,
+      })),
+    ).toEqual([
+      {
+        kind: "package",
+        packageName: "configport",
+        path: ".packs/claude/configport/.claude-plugin/plugin.json",
+        target: "claude",
+      },
+      {
+        kind: "package",
+        packageName: "configport",
+        path: ".packs/claude/configport/.packport-control-plugin.json",
+        target: "claude",
+      },
+      {
+        kind: "package",
+        packageName: "configport",
+        path: ".packs/claude/configport/skills/configure-pack/SKILL.md",
+        target: "claude",
+      },
+      {
+        kind: "package",
+        packageName: "packport",
+        path: ".packs/claude/packport/.claude-plugin/plugin.json",
+        target: "claude",
+      },
+      {
+        kind: "package",
+        packageName: "packport",
+        path: ".packs/claude/packport/.packport-control-plugin.json",
+        target: "claude",
+      },
+      {
+        kind: "package",
+        packageName: "packport",
+        path: ".packs/claude/packport/skills/check-pack/SKILL.md",
+        target: "claude",
+      },
+    ]);
+    expect(await detectLockDrift(sourcePath, lock, discovery.index)).toEqual([]);
+  });
+
   test("generates Claude control marketplace metadata", async () => {
     const rootPath = await mkdtemp(join(tmpdir(), "packport-control-marketplace-"));
     const packageRootPath = join(rootPath, ".packs/claude");
@@ -410,6 +470,24 @@ async function createControlSkillSource(
     await mkdir(join(sourcePath, CONTROL_PACK_DIRECTORY, "skills", name), { recursive: true });
     await writeFile(join(sourcePath, CONTROL_PACK_DIRECTORY, "skills", name, "SKILL.md"), contents);
   }
+
+  return sourcePath;
+}
+
+/** Creates a temporary source tree with packport and configport control packs. */
+async function createDualControlSkillSource(): Promise<string> {
+  const sourcePath = await createControlSkillSource();
+  await mkdir(join(sourcePath, CONFIGPORT_CONTROL_PACK_DIRECTORY, "skills/configure-pack"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(sourcePath, CONFIGPORT_CONTROL_PACK_DIRECTORY, "PACK.md"),
+    "---\nname: configport-control\nversion: 0.0.0\ndescription: Config control workflows.\n---\n",
+  );
+  await writeFile(
+    join(sourcePath, CONFIGPORT_CONTROL_PACK_DIRECTORY, "skills/configure-pack/SKILL.md"),
+    "# Configure\n",
+  );
 
   return sourcePath;
 }

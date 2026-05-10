@@ -1,4 +1,8 @@
 {
+  "name": "packport-local",
+  "owner": {
+    "name": "packport"
+  },
   "plugins": [
     {
       "description": "packport control skills for portable agent packs",

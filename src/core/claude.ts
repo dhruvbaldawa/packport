@@ -3,11 +3,16 @@
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
-import { isBuiltInControlPack } from "./control-packs";
+import {
+  CONFIGPORT_CONTROL_PLUGIN_NAME,
+  CONTROL_PLUGIN_NAME,
+  isBuiltInControlPack,
+  isBuiltInControlPluginPackage,
+} from "./control-packs";
 import { discoverPackRepository } from "./discovery";
 import {
   readPackLock,
-  writePackGenerationLock,
+  writePackGenerationSelectionLock,
   type GeneratedOutput,
   type LockedOutput,
 } from "./lockfile";
@@ -169,12 +174,13 @@ export async function generateClaudeOutput(
       await executeWriteOperation(operation, files);
     }
 
-    await writePackGenerationLock(
+    await writePackGenerationSelectionLock(
       rootPath,
       discovery.index,
       PACKPORT_TOOL_VERSION,
       files.map((file) => claudeGeneratedOutput(file, outputPath, marketplacePath)),
       "claude",
+      [CONTROL_PLUGIN_NAME, CONFIGPORT_CONTROL_PLUGIN_NAME],
       lockDecisions,
       preservedOutputs,
     );
@@ -246,6 +252,16 @@ async function planClaudePlugin(
   diagnostics: Diagnostic[],
 ): Promise<ClaudePluginPlan> {
   const pluginPath = join(outputPath, pack.id);
+
+  if (isBuiltInControlPluginPackage(pack.id)) {
+    diagnostics.push({
+      code: "reserved-claude-plugin-name",
+      message: `Claude plugin name is reserved for packport control packages: ${pack.id}.`,
+      path: pack.directoryPath,
+      severity: "error",
+    });
+    return { agents: 0, commands: 0, plugins: 0, skills: 0 };
+  }
 
   if (!isValidClaudeName(pack.id)) {
     diagnostics.push({
@@ -484,7 +500,8 @@ async function planClaudeMarketplace(
         (output) =>
           output.target === "claude" &&
           output.kind === "package" &&
-          output.packageName !== undefined,
+          output.packageName !== undefined &&
+          !isBuiltInControlPluginPackage(output.packageName),
       )
       .map((output) => output.packageName as string),
   );
@@ -554,6 +571,7 @@ function staleClaudePackageOutputs(
     (output) =>
       output.target === "claude" &&
       output.kind === "package" &&
+      (output.packageName === undefined || !isBuiltInControlPluginPackage(output.packageName)) &&
       !currentOutputPaths.has(output.path),
   );
 }

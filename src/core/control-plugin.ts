@@ -3,21 +3,34 @@
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
-import { CONFIGPORT_CONTROL_PACK_DIRECTORY, CONTROL_PACK_DIRECTORY } from "./control-packs";
-import { readPackLock, refreshPackLockGeneratedOutput, writePackLock } from "./lockfile";
+import {
+  CONFIGPORT_CONTROL_PACK_DIRECTORY,
+  CONFIGPORT_CONTROL_PLUGIN_NAME,
+  CONTROL_PACK_DIRECTORY,
+  CONTROL_PLUGIN_NAME,
+} from "./control-packs";
+import { discoverPackRepository } from "./discovery";
+import {
+  readPackLock,
+  refreshPackLockGeneratedOutput,
+  writePackGenerationPackageLock,
+  writePackLock,
+  type LockedOutput,
+} from "./lockfile";
+import type { Diagnostic, PackRepositoryIndex } from "./types";
 
 export {
   CONFIGPORT_CONTROL_PACK_DIRECTORY,
   CONFIGPORT_CONTROL_PACK_NAME,
+  CONFIGPORT_CONTROL_PLUGIN_NAME,
   CONTROL_PACK_DIRECTORY,
   CONTROL_PACK_NAME,
+  CONTROL_PLUGIN_NAME,
 } from "./control-packs";
 
-export const CONTROL_PLUGIN_NAME = "packport";
 export const CONTROL_PLUGIN_STATE_FILE = ".packport-control-plugin.json";
 export const CONTROL_SKILLS_DIRECTORY = "skills";
 export const CLAUDE_CONTROL_MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
-export const CONFIGPORT_CONTROL_PLUGIN_NAME = "configport";
 
 export type ControlPluginKind = "configport" | "packport";
 
@@ -61,6 +74,12 @@ type ClaudeControlMarketplace = {
   readonly name: string;
   readonly owner: { readonly name: string };
   readonly plugins: readonly ClaudeControlMarketplaceEntry[];
+};
+
+type ControlPluginLockContext = {
+  readonly decisions: readonly string[];
+  readonly index: PackRepositoryIndex;
+  readonly previousOutputs: readonly LockedOutput[];
 };
 
 function controlPluginManifest(
@@ -110,7 +129,9 @@ export async function generateClaudeControlPlugin(
 ): Promise<GenerateControlPluginResult> {
   assertSafeOutputPath(rootPath, outputPath);
 
+  const lockContext = await readControlPluginLockContext(rootPath, outputPath);
   const skills = await discoverControlSkills(rootPath, pluginKind);
+  const manifest = controlPluginManifest(pluginKind, version);
 
   if (skills.length === 0) {
     throw new Error(
@@ -124,11 +145,7 @@ export async function generateClaudeControlPlugin(
 
   const manifestFile = ".claude-plugin/plugin.json";
 
-  await writeGeneratedJsonFile(
-    outputPath,
-    manifestFile,
-    controlPluginManifest(pluginKind, version),
-  );
+  await writeGeneratedJsonFile(outputPath, manifestFile, manifest);
   files.push(join(outputPath, manifestFile));
   generatedFiles.push(manifestFile);
 
@@ -145,6 +162,24 @@ export async function generateClaudeControlPlugin(
     stateVersion: 1,
   });
   files.push(join(outputPath, CONTROL_PLUGIN_STATE_FILE));
+
+  if (lockContext) {
+    await writePackGenerationPackageLock(
+      rootPath,
+      lockContext.index,
+      version,
+      files.map((file) => ({
+        kind: "package",
+        packageName: manifest.name,
+        path: file,
+        target: "claude",
+      })),
+      "claude",
+      manifest.name,
+      lockContext.decisions,
+      lockContext.previousOutputs,
+    );
+  }
 
   return { files, pluginPath: outputPath, skills };
 }
@@ -231,6 +266,39 @@ function claudeControlMarketplaceEntry(
     name: manifest.name,
     source: slashPath(relative(rootPath, join(packageRootPath, manifest.name))),
   };
+}
+
+async function readControlPluginLockContext(
+  rootPath: string,
+  outputPath: string,
+): Promise<ControlPluginLockContext | undefined> {
+  if (!isSameOrInside(resolve(outputPath), resolve(rootPath))) {
+    return undefined;
+  }
+
+  const discovery = await discoverPackRepository(rootPath);
+
+  if (discovery.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    throw new Error(formatDiagnosticsAsError(discovery.diagnostics));
+  }
+
+  const lockResult = await readPackLock(rootPath);
+
+  if (lockResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    throw new Error(formatDiagnosticsAsError(lockResult.diagnostics));
+  }
+
+  return {
+    decisions: lockResult.lock?.decisions ?? [],
+    index: discovery.index,
+    previousOutputs: lockResult.lock?.outputs ?? [],
+  };
+}
+
+function formatDiagnosticsAsError(diagnostics: readonly Diagnostic[]): string {
+  return diagnostics
+    .map((diagnostic) => `${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`)
+    .join("\n");
 }
 
 /** Reads a source skill only after rejecting symlink traversal. */

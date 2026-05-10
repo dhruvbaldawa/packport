@@ -10,6 +10,10 @@ import {
   CLAUDE_MARKETPLACE_FILE,
   generateClaudeOutput,
 } from "../src/core/claude";
+import {
+  generateClaudeControlMarketplace,
+  generateClaudeControlPlugin,
+} from "../src/core/control-plugin";
 import { discoverPackRepository } from "../src/core/discovery";
 import { createPackLock, readPackLock, writePackLock } from "../src/core/lockfile";
 
@@ -248,6 +252,113 @@ description: Control workflows.
     await expect(
       lstat(join(rootPath, ".packs/claude/packport-control/.claude-plugin/plugin.json")),
     ).rejects.toThrow();
+  });
+
+  test("preserves repo-local Claude control plugins during user-pack generation", async () => {
+    const rootPath = await createTempRepository("packport-claude-source-");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/configport-control/PACK.md": `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+      "packs/configport-control/skills/configure-pack/SKILL.md": "# Configure\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+    await generateClaudeControlPlugin(rootPath, join(rootPath, ".packs/claude/packport"), "0.0.0");
+    await generateClaudeControlPlugin(
+      rootPath,
+      join(rootPath, ".packs/claude/configport"),
+      "0.0.0",
+      "configport",
+    );
+    await generateClaudeControlMarketplace(rootPath);
+
+    const result = await generateClaudeOutput(rootPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      JSON.parse(await readFile(join(rootPath, CLAUDE_MARKETPLACE_FILE), "utf8")).plugins.map(
+        (plugin: { name: string }) => plugin.name,
+      ),
+    ).toEqual(["packport", "configport", "essentials"]);
+    expect(
+      await readFile(join(rootPath, ".packs/claude/packport/skills/check-pack/SKILL.md"), "utf8"),
+    ).toBe("# Check\n");
+    expect(
+      await readFile(
+        join(rootPath, ".packs/claude/configport/skills/configure-pack/SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("# Configure\n");
+    expect(
+      lockResult.lock?.outputs
+        .filter(
+          (output) =>
+            output.target === "claude" &&
+            output.kind === "package" &&
+            (output.packageName === "packport" || output.packageName === "configport"),
+        )
+        .map((output) => output.path),
+    ).toEqual([
+      ".packs/claude/configport/.claude-plugin/plugin.json",
+      ".packs/claude/configport/.packport-control-plugin.json",
+      ".packs/claude/configport/skills/configure-pack/SKILL.md",
+      ".packs/claude/packport/.claude-plugin/plugin.json",
+      ".packs/claude/packport/.packport-control-plugin.json",
+      ".packs/claude/packport/skills/check-pack/SKILL.md",
+    ]);
+    expect(lockResult.lock?.outputs.some((output) => output.packageName === "essentials")).toBe(
+      true,
+    );
+  });
+
+  test("rejects user packs that collide with Claude control plugin names", async () => {
+    const rootPath = await createTempRepository("packport-claude-source-");
+    await writeFileTree(rootPath, {
+      "packs/packport/PACK.md": `---
+name: packport
+version: 1.0.0
+description: User pack with a reserved Claude name.
+---
+`,
+      "packs/packport/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/packport-control/PACK.md": `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+      "packs/packport-control/skills/check-pack/SKILL.md": "# Check\n",
+    });
+    await generateClaudeControlPlugin(rootPath, join(rootPath, ".packs/claude/packport"), "0.0.0");
+
+    const result = await generateClaudeOutput(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "reserved-claude-plugin-name",
+      message: "Claude plugin name is reserved for packport control packages: packport.",
+      path: join(rootPath, "packs/packport"),
+      severity: "error",
+    });
+    expect(
+      await readFile(join(rootPath, ".packs/claude/packport/skills/check-pack/SKILL.md"), "utf8"),
+    ).toBe("# Check\n");
   });
 
   test("removes stale generated Claude packages when packs disappear", async () => {

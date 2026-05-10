@@ -134,6 +134,72 @@ export async function writePackGenerationLock(
   return lock;
 }
 
+/** Regenerates pack.lock.yaml while replacing one generated package's output ownership. */
+export async function writePackGenerationPackageLock(
+  rootPath: string,
+  index: PackRepositoryIndex,
+  toolVersion: string,
+  outputs: readonly GeneratedOutput[],
+  target: string,
+  packageName: string,
+  decisions: readonly string[] = [],
+  previousOutputs: readonly LockedOutput[] = [],
+): Promise<PackLock> {
+  const lock = await createPackLock(
+    rootPath,
+    index,
+    toolVersion,
+    [
+      ...previousOutputs.filter(
+        (output) =>
+          output.target !== target ||
+          output.kind !== "package" ||
+          output.packageName !== packageName,
+      ),
+      ...outputs,
+    ],
+    decisions,
+  );
+  await writePackLock(rootPath, lock);
+  return lock;
+}
+
+/** Regenerates pack.lock.yaml while replacing selected packages and the target marketplace. */
+export async function writePackGenerationSelectionLock(
+  rootPath: string,
+  index: PackRepositoryIndex,
+  toolVersion: string,
+  outputs: readonly GeneratedOutput[],
+  target: string,
+  preservedPackageNames: readonly string[],
+  decisions: readonly string[] = [],
+  previousOutputs: readonly LockedOutput[] = [],
+): Promise<PackLock> {
+  const preservedPackages = new Set(preservedPackageNames);
+  const lock = await createPackLock(
+    rootPath,
+    index,
+    toolVersion,
+    [
+      ...previousOutputs.filter((output) => {
+        if (output.target !== target) {
+          return true;
+        }
+
+        if (output.kind === "marketplace") {
+          return false;
+        }
+
+        return output.packageName !== undefined && preservedPackages.has(output.packageName);
+      }),
+      ...outputs,
+    ],
+    decisions,
+  );
+  await writePackLock(rootPath, lock);
+  return lock;
+}
+
 /** Refreshes one already-locked generated output hash after another generator rewrites it. */
 export async function refreshPackLockGeneratedOutput(
   rootPath: string,

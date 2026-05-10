@@ -33,7 +33,7 @@ export {
   formatCodexDiagnostics,
   generateCodexOutput,
 } from "./core/codex";
-export { isBuiltInControlPack } from "./core/control-packs";
+export { isBuiltInControlPack, isBuiltInControlPluginPackage } from "./core/control-packs";
 export {
   CONFIGPORT_CONTROL_PACK_DIRECTORY,
   CONFIGPORT_CONTROL_PACK_NAME,
@@ -60,6 +60,8 @@ export {
   PACK_LOCK_FILE,
   readPackLock,
   serializePackLock,
+  writePackGenerationPackageLock,
+  writePackGenerationSelectionLock,
   writePackLock,
 } from "./core/lockfile";
 export { parseMarkdownContract } from "./core/markdown";
