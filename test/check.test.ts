@@ -91,7 +91,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 0,
-      stdout: `Generated Claude control plugin at ${outputPath} with 2 skill(s).`,
+      stdout: `Generated Claude control plugin at ${outputPath} with 6 skill(s).`,
     });
     expect(
       JSON.parse(await readFile(join(outputPath, ".claude-plugin/plugin.json"), "utf8")),
@@ -115,7 +115,7 @@ describe("runCli", () => {
 
       expect(result).toEqual({
         exitCode: 0,
-        stdout: "Generated Claude control plugin at packport with 2 skill(s).",
+        stdout: "Generated Claude control plugin at packport with 6 skill(s).",
       });
       expect(
         JSON.parse(await readFile(join(cwd, "packport/.claude-plugin/plugin.json"), "utf8")),

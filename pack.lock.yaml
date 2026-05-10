@@ -14,16 +14,36 @@ assets:
     payloads:
       - hash: a0be59b0e4d4b3586ab788c884f3eb8c9ed58564e44ecf493d8a9cc6fdcc7d09
         path: packs/configport-control/skills/configure-tools/SKILL.md
+  - id: packport-control/skill/add-harness
+    kind: skill
+    payloads:
+      - hash: b21f8af38facdb1f062083c19d3815b63965f0c6e5e47937ea5e62f6bef31965
+        path: packs/packport-control/skills/add-harness/SKILL.md
+  - id: packport-control/skill/author-pack
+    kind: skill
+    payloads:
+      - hash: b43c64a4a5bf890ddeaf58e228327a55e74774a5a8cd7cc060254185421116cb
+        path: packs/packport-control/skills/author-pack/SKILL.md
   - id: packport-control/skill/check-pack
     kind: skill
     payloads:
       - hash: 2d7afa845edfd947b5f4b66964bbce292825ab6530a1ac131558abe9c79336db
         path: packs/packport-control/skills/check-pack/SKILL.md
+  - id: packport-control/skill/generate-pack
+    kind: skill
+    payloads:
+      - hash: c851cc06d35cb5675c7dd014037407c4f73b5bb30e3c289c3d3624d19812e3ef
+        path: packs/packport-control/skills/generate-pack/SKILL.md
   - id: packport-control/skill/migrate-claude
     kind: skill
     payloads:
       - hash: 24b19b706073b69f871ed02ced87cecbb6e6e83ac66aebf321c6ac70cd01a38c
         path: packs/packport-control/skills/migrate-claude/SKILL.md
+  - id: packport-control/skill/release-pack
+    kind: skill
+    payloads:
+      - hash: 5b4b7a5d918be683b04fe6d0575c8cb52371a37d4992085bc1bbd2c8a594d94c
+        path: packs/packport-control/skills/release-pack/SKILL.md
 decisions:
   []
 lockfileVersion: 1
@@ -66,20 +86,40 @@ outputs:
     packageName: packport
     path: .packs/claude/packport/.claude-plugin/plugin.json
     target: claude
-  - hash: 920144138a9ef21dbe99e60173588680ef7931a623985db7a31410d089fa02c9
+  - hash: 6d4e7ecc7a631d7b6d97a452f2965033b94cdb90f96efe9d6948fc74b743c043
     kind: package
     packageName: packport
     path: .packs/claude/packport/.packport-control-plugin.json
+    target: claude
+  - hash: b21f8af38facdb1f062083c19d3815b63965f0c6e5e47937ea5e62f6bef31965
+    kind: package
+    packageName: packport
+    path: .packs/claude/packport/skills/add-harness/SKILL.md
+    target: claude
+  - hash: b43c64a4a5bf890ddeaf58e228327a55e74774a5a8cd7cc060254185421116cb
+    kind: package
+    packageName: packport
+    path: .packs/claude/packport/skills/author-pack/SKILL.md
     target: claude
   - hash: 2d7afa845edfd947b5f4b66964bbce292825ab6530a1ac131558abe9c79336db
     kind: package
     packageName: packport
     path: .packs/claude/packport/skills/check-pack/SKILL.md
     target: claude
+  - hash: c851cc06d35cb5675c7dd014037407c4f73b5bb30e3c289c3d3624d19812e3ef
+    kind: package
+    packageName: packport
+    path: .packs/claude/packport/skills/generate-pack/SKILL.md
+    target: claude
   - hash: 24b19b706073b69f871ed02ced87cecbb6e6e83ac66aebf321c6ac70cd01a38c
     kind: package
     packageName: packport
     path: .packs/claude/packport/skills/migrate-claude/SKILL.md
+    target: claude
+  - hash: 5b4b7a5d918be683b04fe6d0575c8cb52371a37d4992085bc1bbd2c8a594d94c
+    kind: package
+    packageName: packport
+    path: .packs/claude/packport/skills/release-pack/SKILL.md
     target: claude
   - hash: 2d08f41405e24ae5b37da0dbacba125286b9a854fb486ba38bd7396da8456f1b
     kind: package
@@ -106,20 +146,50 @@ outputs:
     packageName: packport-control
     path: .packs/codex/packport-control/.codex-plugin/plugin.json
     target: codex
+  - hash: 4f88ba747cd9e3f12fb3b9a744543b7085cdde962b1e8190aa62b2ba2d618ab6
+    kind: package
+    packageName: packport-control
+    path: .packs/codex/packport-control/skills/add-harness/SKILL.md
+    target: codex
+  - hash: 15f3f23c80f3f0706f5919c5e02a1d75558a9f9914ba39d588db30f9f81d659a
+    kind: package
+    packageName: packport-control
+    path: .packs/codex/packport-control/skills/author-pack/SKILL.md
+    target: codex
   - hash: 268f9c3280af26887b32ec4a5198798e469409e1d2be4598229e86e1f6ecfa0b
     kind: package
     packageName: packport-control
     path: .packs/codex/packport-control/skills/check-pack/SKILL.md
+    target: codex
+  - hash: 83399eaea8a47d88204d4115180e977648f9cc7c6b26b89423d0ae19f909c781
+    kind: package
+    packageName: packport-control
+    path: .packs/codex/packport-control/skills/generate-pack/SKILL.md
     target: codex
   - hash: a05bbb4bd1c401f7cd32f0ee7819d98f62bf9b81ff471638d14d1a922a267511
     kind: package
     packageName: packport-control
     path: .packs/codex/packport-control/skills/migrate-claude/SKILL.md
     target: codex
+  - hash: 9ad0d1eb25734a94d41ca5b6ac0cf94d50033cb96caa7b4a4f739f9377135577
+    kind: package
+    packageName: packport-control
+    path: .packs/codex/packport-control/skills/release-pack/SKILL.md
+    target: codex
+  - hash: 4f88ba747cd9e3f12fb3b9a744543b7085cdde962b1e8190aa62b2ba2d618ab6
+    kind: package
+    packageName: opencode
+    path: .packs/opencode/.opencode/skills/add-harness/SKILL.md
+    target: opencode
   - hash: 6d9767cc1cb8c68b248fba4801f60346ce0614e634c092ff2f6e162afd3d85ed
     kind: package
     packageName: opencode
     path: .packs/opencode/.opencode/skills/apply-pack/SKILL.md
+    target: opencode
+  - hash: 15f3f23c80f3f0706f5919c5e02a1d75558a9f9914ba39d588db30f9f81d659a
+    kind: package
+    packageName: opencode
+    path: .packs/opencode/.opencode/skills/author-pack/SKILL.md
     target: opencode
   - hash: 268f9c3280af26887b32ec4a5198798e469409e1d2be4598229e86e1f6ecfa0b
     kind: package
@@ -136,10 +206,20 @@ outputs:
     packageName: opencode
     path: .packs/opencode/.opencode/skills/configure-tools/SKILL.md
     target: opencode
+  - hash: 83399eaea8a47d88204d4115180e977648f9cc7c6b26b89423d0ae19f909c781
+    kind: package
+    packageName: opencode
+    path: .packs/opencode/.opencode/skills/generate-pack/SKILL.md
+    target: opencode
   - hash: a05bbb4bd1c401f7cd32f0ee7819d98f62bf9b81ff471638d14d1a922a267511
     kind: package
     packageName: opencode
     path: .packs/opencode/.opencode/skills/migrate-claude/SKILL.md
+    target: opencode
+  - hash: 9ad0d1eb25734a94d41ca5b6ac0cf94d50033cb96caa7b4a4f739f9377135577
+    kind: package
+    packageName: opencode
+    path: .packs/opencode/.opencode/skills/release-pack/SKILL.md
     target: opencode
   - hash: 3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1
     kind: package

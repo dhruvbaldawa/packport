@@ -1,8 +1,12 @@
 {
   "files": [
     ".claude-plugin/plugin.json",
+    "skills/add-harness/SKILL.md",
+    "skills/author-pack/SKILL.md",
     "skills/check-pack/SKILL.md",
-    "skills/migrate-claude/SKILL.md"
+    "skills/generate-pack/SKILL.md",
+    "skills/migrate-claude/SKILL.md",
+    "skills/release-pack/SKILL.md"
   ],
   "generatedBy": "packport",
   "stateVersion": 1

@@ -40,6 +40,8 @@ The current code supports a useful bootstrap path:
 - generate OpenCode repo-local output from portable packs.
 - generate Codex plugins and `.agents/plugins/marketplace.json` from portable packs.
 - generate Claude Code control plugins for the built-in `packport` and `configport` skills.
+- drive authoring, generation, release preparation, harness work, migration, and checks through
+  generated `packport` control skills.
 - store and apply configport overlays for generated output.
 
 ## Operating Rule

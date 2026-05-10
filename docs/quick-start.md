@@ -68,8 +68,12 @@ Use the generated marketplace files as the local package entry points for your h
 
 Then invoke a generated control skill:
 
+- `author-pack` creates or extends portable pack source.
 - `check-pack` validates a portable pack repository.
+- `generate-pack` regenerates target packages and marketplaces.
 - `migrate-claude` scans and plans migration from Claude Code plugin source.
+- `release-pack` prepares source, generated output, and lockfiles for handoff.
+- `add-harness` guides target adapter implementation.
 - `configure-pack` records local replacements and overlay files.
 - `apply-pack` materializes generated output through a selected configport profile.
 

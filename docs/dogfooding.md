@@ -33,8 +33,12 @@ portable pack repositories should let generation skip tool-owned control packs.
 After the local packages are available in your harness, use the generated skills rather than
 manually stepping through every primitive:
 
+- ask `author-pack` to create or extend portable pack source.
 - ask `check-pack` to validate this repo or another pack repo.
+- ask `generate-pack` to regenerate harness-native output.
 - ask `migrate-claude` to inspect a Claude marketplace or plugin.
+- ask `release-pack` to prepare source, generated output, and lockfiles for handoff.
+- ask `add-harness` to guide adapter implementation work.
 - ask `configure-pack` to turn approved local literals into configport overlays.
 - ask `apply-pack` to materialize generated output for a selected profile.
 
