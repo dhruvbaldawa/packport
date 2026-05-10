@@ -10,6 +10,7 @@ From the packport repo:
 
 ```bash
 bun src/cli.ts check .
+bun src/cli.ts claude generate .
 bun src/cli.ts opencode generate . .packs/opencode
 bun src/cli.ts codex generate .
 bun src/cli.ts control-plugin claude .packs/claude/packport

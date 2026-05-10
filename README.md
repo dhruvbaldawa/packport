@@ -12,7 +12,7 @@ Start with the user guide:
 Current implementation status:
 
 - Portable pack source is discovered from `packs/`.
-- OpenCode and Codex user pack output can be generated under `.packs/`.
+- Claude Code, OpenCode, and Codex user pack output can be generated under `.packs/`.
 - Claude Code and Codex control packages and repo-local marketplaces are generated for dogfooding.
 - `configport` overlays can materialize generated output with local replacements and files.
 - Claude Code migration can scan, plan, and write portable source from existing Claude plugins.

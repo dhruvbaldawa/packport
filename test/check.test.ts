@@ -68,6 +68,7 @@ description: Core workflows.
 describe("runCli", () => {
   const usage =
     "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+  const claudeUsage = "Usage: packport claude generate <pack-root> [output-root]";
   const opencodeUsage = "Usage: packport opencode generate <pack-root> <output-root>";
   const codexUsage = "Usage: packport codex generate <pack-root> [output-root]";
   const configportUsage =
@@ -156,6 +157,8 @@ describe("runCli", () => {
     expect(
       JSON.parse(await readFile(join(rootPath, ".claude-plugin/marketplace.json"), "utf8")),
     ).toEqual({
+      name: "packport-local",
+      owner: { name: "packport" },
       plugins: [
         {
           description: "packport control skills for portable agent packs",
@@ -333,6 +336,69 @@ describe("runCli", () => {
       exitCode: 1,
       stderr: `Unknown migrate-claude option '--wat'.\n${usage}`,
     });
+  });
+
+  test("generates Claude output and marketplace metadata", async () => {
+    const rootPath = await createValidPackRepository();
+
+    const result = await runCli(["claude", "generate", rootPath]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Generated Claude output at ${join(rootPath, ".packs/claude")} with 1 plugin(s), 1 command(s), 0 agent(s), 0 skill(s), and 1 marketplace entry(s).`,
+    });
+    expect(
+      await readFile(join(rootPath, ".packs/claude/essentials/commands/commit.md"), "utf8"),
+    ).toBe("# Commit\n");
+    expect(
+      JSON.parse(await readFile(join(rootPath, ".claude-plugin/marketplace.json"), "utf8")),
+    ).toMatchObject({
+      plugins: [
+        {
+          name: "essentials",
+          source: ".packs/claude/essentials",
+        },
+      ],
+    });
+  });
+
+  test("generates Claude output with an explicit repo-local output root", async () => {
+    const rootPath = await createValidPackRepository();
+    const outputPath = join(rootPath, ".packs/claude");
+
+    const result = await runCli(["claude", "generate", rootPath, outputPath]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Generated Claude output at ${outputPath} with 1 plugin(s), 1 command(s), 0 agent(s), 0 skill(s), and 1 marketplace entry(s).`,
+    });
+    expect(await readFile(join(outputPath, "essentials/commands/commit.md"), "utf8")).toBe(
+      "# Commit\n",
+    );
+  });
+
+  test("reports Claude generation usage errors", async () => {
+    const missingRoot = await runCli(["claude", "generate"]);
+    const wrongSubcommand = await runCli(["claude", "scan", "root"]);
+    const tooManyArgs = await runCli(["claude", "generate", "root", "output", "extra"]);
+
+    expect(missingRoot).toEqual({ exitCode: 1, stderr: claudeUsage });
+    expect(wrongSubcommand).toEqual({ exitCode: 1, stderr: claudeUsage });
+    expect(tooManyArgs).toEqual({ exitCode: 1, stderr: claudeUsage });
+  });
+
+  test("returns Claude generation diagnostics for invalid output roots", async () => {
+    const rootPath = await createValidPackRepository();
+    const outputPath = join(await mkdtemp(join(tmpdir(), "packport-cli-claude-output-")), "claude");
+
+    const result = await runCli(["claude", "generate", rootPath, outputPath]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(
+      `Generated Claude output at ${outputPath} with 0 plugin(s), 0 command(s), 0 agent(s), 0 skill(s), and 0 marketplace entry(s).`,
+    );
+    expect(result.stdout).toContain("ERROR invalid-claude-output-root");
+    await expect(lstat(join(outputPath, "essentials/commands/commit.md"))).rejects.toThrow();
   });
 
   test("generates OpenCode output", async () => {
@@ -686,7 +752,7 @@ description: Core workflows.
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr: `Unknown command 'wat'.\n${usage}\n${opencodeUsage}\n${codexUsage}\n${configportUsage}`,
+      stderr: `Unknown command 'wat'.\n${usage}\n${claudeUsage}\n${opencodeUsage}\n${codexUsage}\n${configportUsage}`,
     });
   });
 });

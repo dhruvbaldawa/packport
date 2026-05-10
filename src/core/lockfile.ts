@@ -134,6 +134,49 @@ export async function writePackGenerationLock(
   return lock;
 }
 
+/** Refreshes one already-locked generated output hash after another generator rewrites it. */
+export async function refreshPackLockGeneratedOutput(
+  rootPath: string,
+  lock: PackLock,
+  output: GeneratedOutput,
+): Promise<PackLock> {
+  const path = relativePath(rootPath, output.path);
+
+  if (!isValidLockPath(path)) {
+    throw new Error(`Generated output path must stay inside the repository: ${output.path}`);
+  }
+
+  const state = await tryHashLockedPath(rootPath, path, "output");
+  const hash = state.hash;
+
+  if (!hash) {
+    throw new Error(
+      state.diagnostic?.message ?? `Cannot hash unsafe or missing generated output: ${path}`,
+    );
+  }
+
+  return {
+    ...lock,
+    outputs: lock.outputs.map((lockedOutput) => {
+      if (
+        lockedOutput.target !== output.target ||
+        lockedOutput.kind !== output.kind ||
+        lockedOutput.path !== path
+      ) {
+        return lockedOutput;
+      }
+
+      return {
+        hash,
+        kind: output.kind,
+        ...(output.packageName ? { packageName: output.packageName } : {}),
+        path,
+        target: output.target,
+      };
+    }),
+  };
+}
+
 /** Reports source files that changed, disappeared, or are not tracked by the lockfile. */
 export async function detectLockDrift(
   rootPath: string,

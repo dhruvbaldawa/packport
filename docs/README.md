@@ -21,7 +21,7 @@ Use the narrowest guide that matches your immediate job:
 - [Concepts](concepts.md): understand the packport/configport split and the source/generated/local
   boundaries.
 - [Authoring Packs](authoring-packs.md): create or edit source packs under `packs/`.
-- [Generating Targets](generating-targets.md): emit OpenCode, Codex, Claude control packages, and
+- [Generating Targets](generating-targets.md): emit Claude Code, OpenCode, Codex, control packages, and
   marketplaces.
 - [Migrating From Claude Code](migrating-from-claude.md): scan, plan, and write portable source
   from an existing Claude marketplace or plugin.
@@ -36,16 +36,11 @@ The current code supports a useful bootstrap path:
 
 - validate portable pack source with `check`.
 - migrate Claude Code plugin source into portable pack source with `migrate-claude`.
+- generate Claude Code plugins and `.claude-plugin/marketplace.json` from portable packs.
 - generate OpenCode repo-local output from portable packs.
 - generate Codex plugins and `.agents/plugins/marketplace.json` from portable packs.
 - generate Claude Code control plugins for the built-in `packport` and `configport` skills.
-- generate a Claude Code control marketplace at `.claude-plugin/marketplace.json`.
 - store and apply configport overlays for generated output.
-
-The current Claude Code generator is for control plugins. Arbitrary user-pack generation for Claude
-Code is still design work. The migration primitive can write portable source from Claude plugins,
-but target generation from that source should currently use the OpenCode and Codex emitters unless
-you are generating the built-in Claude control packages.
 
 ## Operating Rule
 

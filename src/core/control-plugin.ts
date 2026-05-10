@@ -3,6 +3,7 @@
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { readPackLock, refreshPackLockGeneratedOutput, writePackLock } from "./lockfile";
 
 export const CONTROL_PLUGIN_NAME = "packport";
 export const CONTROL_PLUGIN_STATE_FILE = ".packport-control-plugin.json";
@@ -53,6 +54,8 @@ type GeneratedControlPluginState = {
 };
 
 type ClaudeControlMarketplace = {
+  readonly name: string;
+  readonly owner: { readonly name: string };
   readonly plugins: readonly ClaudeControlMarketplaceEntry[];
 };
 
@@ -148,6 +151,16 @@ export async function generateClaudeControlMarketplace(
   packageRootPath = join(rootPath, ".packs", "claude"),
 ): Promise<GenerateClaudeControlMarketplaceResult> {
   const marketplacePath = join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE);
+  const lockResult = await readPackLock(rootPath);
+
+  if (lockResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    throw new Error(
+      lockResult.diagnostics
+        .map((diagnostic) => `${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`)
+        .join("\n"),
+    );
+  }
+
   const generatedEntries = claudeControlMarketplaceEntries(rootPath, packageRootPath);
   const generatedEntriesByName = new Map(generatedEntries.map((entry) => [entry.name, entry]));
   const replacedNames = new Set<string>();
@@ -168,7 +181,22 @@ export async function generateClaudeControlMarketplace(
   ];
 
   await validateClaudeControlMarketplaceEntries(rootPath, entries, marketplacePath);
-  await writeGeneratedJsonFile(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE, { plugins: entries });
+  await writeGeneratedJsonFile(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE, {
+    name: existing.name,
+    owner: existing.owner,
+    plugins: entries,
+  });
+
+  if (lockResult.lock) {
+    await writePackLock(
+      rootPath,
+      await refreshPackLockGeneratedOutput(rootPath, lockResult.lock, {
+        kind: "marketplace",
+        path: marketplacePath,
+        target: "claude",
+      }),
+    );
+  }
 
   return {
     entries,
@@ -221,7 +249,7 @@ async function readClaudeControlMarketplace(path: string): Promise<ClaudeControl
     throw new Error(`Claude control marketplace is invalid: ${path}`);
   } catch (error) {
     if (isMissingPathError(error)) {
-      return { plugins: [] };
+      return { name: "packport-local", owner: { name: "packport" }, plugins: [] };
     }
 
     throw error;
@@ -411,7 +439,14 @@ function normalizeClaudeControlMarketplace(value: unknown): ClaudeControlMarketp
     });
   }
 
-  return { plugins };
+  return {
+    name: typeof value.name === "string" ? value.name : "packport-local",
+    owner:
+      isRecord(value.owner) && typeof value.owner.name === "string"
+        ? { name: value.owner.name }
+        : { name: "packport" },
+    plugins,
+  };
 }
 
 /** Checks that a generated file path can only address files under the output directory. */

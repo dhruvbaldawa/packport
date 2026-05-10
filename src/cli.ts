@@ -2,6 +2,7 @@
 // ABOUTME: Keeps interactive workflows in skills while preserving automation entrypoints.
 
 import { join } from "node:path";
+import { formatClaudeDiagnostics, generateClaudeOutput } from "./core/claude";
 import {
   formatClaudeMigrationPlan,
   formatClaudeMigrationScan,
@@ -35,6 +36,7 @@ const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
   "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+const CLAUDE_USAGE = "Usage: packport claude generate <pack-root> [output-root]";
 const OPENCODE_USAGE = "Usage: packport opencode generate <pack-root> <output-root>";
 const CODEX_USAGE = "Usage: packport codex generate <pack-root> [output-root]";
 const CONFIGPORT_USAGE =
@@ -242,6 +244,28 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     return { exitCode: 1, stderr: USAGE };
   }
 
+  if (command === "claude") {
+    const [subcommand, rootPath, outputPath] = args;
+
+    if (subcommand !== "generate" || rootPath === undefined) {
+      return { exitCode: 1, stderr: CLAUDE_USAGE };
+    }
+
+    if (args.length > 3) {
+      return { exitCode: 1, stderr: CLAUDE_USAGE };
+    }
+
+    const result = await generateClaudeOutput(rootPath, outputPath);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = formatClaudeDiagnostics(result.diagnostics);
+    const summary = `Generated Claude output at ${result.outputPath} with ${result.summary.plugins} plugin(s), ${result.summary.commands} command(s), ${result.summary.agents} agent(s), ${result.summary.skills} skill(s), and ${result.summary.marketplaceEntries} marketplace entry(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: result.diagnostics.length > 0 ? `${summary}\n${diagnostics}` : summary,
+    };
+  }
+
   if (command === "opencode") {
     const [subcommand, rootPath, outputPath] = args;
 
@@ -297,7 +321,7 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
 
   return {
     exitCode: 1,
-    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${OPENCODE_USAGE}\n${CODEX_USAGE}\n${CONFIGPORT_USAGE}`,
+    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${CLAUDE_USAGE}\n${OPENCODE_USAGE}\n${CODEX_USAGE}\n${CONFIGPORT_USAGE}`,
   };
 }
 

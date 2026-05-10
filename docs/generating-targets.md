@@ -73,9 +73,40 @@ Current behavior:
 - output paths must stay under `.packs/` and outside `packs/` and `.agents/`.
 - hooks are reported as unsupported warnings.
 
+## Claude Code
+
+```bash
+bun src/cli.ts claude generate .
+```
+
+By default, Claude output is written under `.packs/claude/` and the local marketplace is written to
+`.claude-plugin/marketplace.json`.
+
+The Claude emitter writes one plugin per source pack:
+
+```text
+.packs/claude/<pack>/.claude-plugin/plugin.json
+.packs/claude/<pack>/commands/<name>.md
+.packs/claude/<pack>/agents/<name>.md
+.packs/claude/<pack>/skills/<name>/SKILL.md
+.claude-plugin/marketplace.json
+```
+
+Current behavior:
+
+- packs become Claude Code plugins.
+- commands become Claude slash-command markdown.
+- agents become Claude subagent markdown.
+- skills are copied into `skills/`.
+- skill support files are copied except packport source metadata.
+- existing non-generated marketplace entries are preserved.
+- generated marketplace entries are replaced by pack name.
+- instruction assets are materialized by configport, not by plugin generation.
+- hooks are reported as unsupported warnings.
+
 ## Claude Code Control Plugins
 
-Claude generation currently packages the built-in control skills, not arbitrary user packs.
+Control plugin generation packages the built-in control skills.
 
 ```bash
 bun src/cli.ts control-plugin claude .packs/claude/packport

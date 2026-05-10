@@ -34,6 +34,17 @@ Generates OpenCode repo-local output from `packs/` under `<pack-root>`.
 
 Summary output includes generated command, agent, and skill counts.
 
+## claude generate
+
+```bash
+packport claude generate <pack-root> [output-root]
+```
+
+Generates one Claude Code plugin per pack and writes `.claude-plugin/marketplace.json` under the
+pack root. When `output-root` is omitted, output goes to `<pack-root>/.packs/claude`.
+
+Summary output includes plugin, command, agent, skill, and marketplace entry counts.
+
 ## codex generate
 
 ```bash

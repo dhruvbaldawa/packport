@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { generateClaudeOutput } from "../src/core/claude";
 import {
   CLAUDE_CONTROL_MARKETPLACE_FILE,
   CONFIGPORT_CONTROL_PACK_DIRECTORY,
@@ -16,6 +17,8 @@ import {
   generateClaudeControlMarketplace,
   generateClaudeControlPlugin,
 } from "../src/core/control-plugin";
+import { discoverPackRepository } from "../src/core/discovery";
+import { detectLockDrift, readPackLock, type PackLock } from "../src/core/lockfile";
 
 describe("control plugin generation", () => {
   test("discovers built-in control skills from source", async () => {
@@ -115,6 +118,8 @@ describe("control plugin generation", () => {
     await writeFile(
       join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE),
       JSON.stringify({
+        name: "custom-marketplace",
+        owner: { name: "Custom" },
         plugins: [
           {
             description: "Manual plugin",
@@ -154,8 +159,45 @@ describe("control plugin generation", () => {
     expect(
       JSON.parse(await readFile(join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE), "utf8")),
     ).toEqual({
+      name: "custom-marketplace",
+      owner: { name: "Custom" },
       plugins: result.entries,
     });
+  });
+
+  test("refreshes the Claude marketplace lock when control metadata is generated", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-control-marketplace-"));
+    await mkdir(join(rootPath, "packs/essentials/commands/plan"), { recursive: true });
+    await writeFile(
+      join(rootPath, "packs/essentials/PACK.md"),
+      `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+    );
+    await writeFile(join(rootPath, "packs/essentials/commands/plan/COMMAND.md"), "# Plan\n");
+
+    const userResult = await generateClaudeOutput(rootPath);
+    const firstLockResult = await readPackLock(rootPath);
+    const firstLock = requireLock(firstLockResult.lock);
+    const firstMarketplaceOutput = requireMarketplaceOutputHash(firstLock);
+
+    const result = await generateClaudeControlMarketplace(rootPath);
+    const lockResult = await readPackLock(rootPath);
+    const lock = requireLock(lockResult.lock);
+    const marketplaceOutput = requireMarketplaceOutputHash(lock);
+    const discovery = await discoverPackRepository(rootPath);
+
+    expect(userResult.diagnostics).toEqual([]);
+    expect(result.entries.map((entry) => entry.name)).toEqual([
+      "essentials",
+      "packport",
+      "configport",
+    ]);
+    expect(marketplaceOutput).not.toBe(firstMarketplaceOutput);
+    expect(await detectLockDrift(rootPath, lock, discovery.index)).toEqual([]);
   });
 
   test("refuses unsafe preserved Claude control marketplace source paths", async () => {
@@ -326,6 +368,31 @@ describe("control plugin generation", () => {
 /** Returns the repository root for tests that package real built-in skill source. */
 function projectRootPath(): string {
   return join(import.meta.dir, "..");
+}
+
+/** Returns a parsed lock in tests that should have generated one. */
+function requireLock(lock: PackLock | undefined): PackLock {
+  if (!lock) {
+    throw new Error("Expected pack.lock.yaml to exist.");
+  }
+
+  return lock;
+}
+
+/** Returns the locked Claude marketplace hash or throws for clearer test failures. */
+function requireMarketplaceOutputHash(lock: PackLock): string {
+  const output = lock.outputs.find(
+    (candidate) =>
+      candidate.target === "claude" &&
+      candidate.kind === "marketplace" &&
+      candidate.path === ".claude-plugin/marketplace.json",
+  );
+
+  if (!output) {
+    throw new Error("Expected pack.lock.yaml to include the Claude marketplace output.");
+  }
+
+  return output.hash;
 }
 
 /** Creates a temporary source tree with one control skill. */

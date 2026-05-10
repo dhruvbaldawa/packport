@@ -5,6 +5,12 @@ export const packageName = "packport";
 export const packageVersion = "0.0.0";
 
 export {
+  CLAUDE_DEFAULT_OUTPUT_DIRECTORY,
+  CLAUDE_MARKETPLACE_FILE,
+  formatClaudeDiagnostics,
+  generateClaudeOutput,
+} from "./core/claude";
+export {
   formatClaudeMigrationPlan,
   formatClaudeMigrationScan,
   planClaudeMigration,
@@ -58,6 +64,7 @@ export {
 export { parseMarkdownContract } from "./core/markdown";
 export { generateOpenCodeOutput } from "./core/opencode";
 export { runCli } from "./cli";
+export type { GenerateClaudeResult } from "./core/claude";
 export type {
   ClaudeMigrationAsset,
   ClaudeMigrationAssetKind,

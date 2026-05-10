@@ -30,6 +30,7 @@ lockfile drift when `pack.lock.yaml` exists.
 ## 2. Regenerate Dogfood Output
 
 ```bash
+bun src/cli.ts claude generate .
 bun src/cli.ts opencode generate . .packs/opencode
 bun src/cli.ts codex generate .
 bun src/cli.ts control-plugin claude .packs/claude/packport
@@ -39,11 +40,12 @@ bun src/cli.ts control-plugin claude-marketplace .
 
 These commands produce:
 
+- `.packs/claude/` with Claude Code plugins.
 - `.packs/opencode/` with OpenCode repo-local skills and `opencode.json`.
 - `.packs/codex/packport-control/` and `.packs/codex/configport-control/`.
 - `.agents/plugins/marketplace.json` for Codex local plugins.
 - `.packs/claude/packport/` and `.packs/claude/configport/`.
-- `.claude-plugin/marketplace.json` for Claude Code local control plugins.
+- `.claude-plugin/marketplace.json` for Claude Code local plugins.
 
 ## 3. Run The Full Quality Gate
 
