@@ -112,6 +112,33 @@ Run inside Claude Code.
     });
   });
 
+  test("scans reusable Claude instruction markdown", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "CLAUDE.md": "# Claude Instructions\n\nKeep reviews concise.\n",
+      "instructions/repo-workflow.md": "# Repo Workflow\n\nRun checks before handoff.\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 2, plugins: 1 });
+    expect(result.plugins[0]?.assets.map((asset) => `${asset.kind}:${asset.name}`)).toEqual([
+      "instruction:claude",
+      "instruction:repo-workflow",
+    ]);
+    expect(result.plugins[0]?.assets.map((asset) => asset.path)).toEqual([
+      "CLAUDE.md",
+      "instructions/repo-workflow.md",
+    ]);
+    expect(result.plugins[0]?.assets.every((asset) => asset.decisionRequired)).toBe(false);
+  });
+
   test("reports structural facts without semantic config classification", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
@@ -563,6 +590,33 @@ describe("planClaudeMigration", () => {
       sourcePath: join(rootPath, "agents/research/depth.md"),
     });
     expect(result.questions).toEqual([]);
+  });
+
+  test("plans Claude instruction markdown as portable instruction assets", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "CLAUDE.md": "# Claude Instructions\n\nKeep reviews concise.\n",
+      "instructions/repo-workflow.md": "# Repo Workflow\n\nRun checks before handoff.\n",
+    });
+
+    const result = await planClaudeMigration(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 2, files: 3, plugins: 1, questions: 0 });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/instructions/claude/INSTRUCTION.md",
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md",
+    ]);
+    expect(result.files[1]).toMatchObject({
+      action: "copy",
+      sourcePath: join(rootPath, "CLAUDE.md"),
+    });
   });
 
   test("excludes user-approved harness-specific plugins from portable source plans", async () => {

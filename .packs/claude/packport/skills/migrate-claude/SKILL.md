@@ -16,15 +16,16 @@ Use this skill to inspect Claude Code marketplace or plugin source before writin
 3. Run `packport migrate-claude plan <path>` to preview the portable file layout without writing source.
 4. If working from the packport source tree before a binary is installed, use `bun src/cli.ts migrate-claude scan <path>` and `bun src/cli.ts migrate-claude plan <path>`.
 5. Summarize discovered plugins, planned files, target collisions, structural facts, and decision questions.
-6. Treat `pack-candidate` assets as normal pack source candidates, including personal or private packs.
-7. Treat known structural facts such as explicit config/security variable references, `config-path-reference`, and `script-reference` as evidence to reason from, not as automatic classifications.
-8. Inspect planned skill support-file questions as content findings, not just path findings; support files with local values may need configport treatment.
-9. Expect multi-file skills to produce `ASSET.md` with `SKILL.md` first and support files after it.
-10. Call out `harness-specific`, `unsupported`, `unclear`, and fact-bearing assets as questions, not decisions.
-11. If the user marks a whole plugin as harness-specific, rerun the plan with `--exclude-plugin <name>` before summarizing portable source files.
-12. If the user marks one asset as harness-specific, rerun the plan with `--exclude-asset <plugin/name>` before summarizing portable source files.
-13. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
-14. After every question is resolved or excluded, run `packport migrate-claude write <source> <output>` with the accepted exclusions.
+6. Treat migrated `CLAUDE.md` or `instructions/*.md` files as reusable instruction asset candidates; configport owns later target and scope placement.
+7. Treat `pack-candidate` assets as normal pack source candidates, including personal or private packs.
+8. Treat known structural facts such as explicit config/security variable references, `config-path-reference`, and `script-reference` as evidence to reason from, not as automatic classifications.
+9. Inspect planned skill support-file questions as content findings, not just path findings; support files with local values may need configport treatment.
+10. Expect multi-file skills to produce `ASSET.md` with `SKILL.md` first and support files after it.
+11. Call out `harness-specific`, `unsupported`, `unclear`, and fact-bearing assets as questions, not decisions.
+12. If the user marks a whole plugin as harness-specific, rerun the plan with `--exclude-plugin <name>` before summarizing portable source files.
+13. If the user marks one asset as harness-specific, rerun the plan with `--exclude-asset <plugin/name>` before summarizing portable source files.
+14. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
+15. After every question is resolved or excluded, run `packport migrate-claude write <source> <output>` with the accepted exclusions.
 
 ## Boundaries
 

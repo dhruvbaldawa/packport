@@ -23,7 +23,8 @@ The source can be:
 - a marketplace repository with `.claude-plugin/marketplace.json`.
 - a single Claude plugin directory with `.claude-plugin/plugin.json`.
 
-The scanner finds Claude agents, commands, and skills. It also records structural facts such as:
+The scanner finds Claude agents, commands, skills, and reusable instruction Markdown such as
+`CLAUDE.md` or files under `instructions/`. It also records structural facts such as:
 
 - config-like paths.
 - script references.
@@ -70,6 +71,7 @@ The writer creates source files such as:
 /tmp/portable-packs/packs/<plugin>/PACK.md
 /tmp/portable-packs/packs/<plugin>/agents/<asset>/AGENT.md
 /tmp/portable-packs/packs/<plugin>/commands/<asset>/COMMAND.md
+/tmp/portable-packs/packs/<plugin>/instructions/<asset>/INSTRUCTION.md
 /tmp/portable-packs/packs/<plugin>/skills/<asset>/ASSET.md
 /tmp/portable-packs/packs/<plugin>/skills/<asset>/SKILL.md
 ```

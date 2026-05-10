@@ -6,7 +6,7 @@ import type { Dirent } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative } from "node:path";
 import type { Diagnostic } from "./types";
 
-export type ClaudeMigrationAssetKind = "agent" | "command" | "skill";
+export type ClaudeMigrationAssetKind = "agent" | "command" | "instruction" | "skill";
 
 export type ClaudeMigrationClassification =
   | "harness-specific"
@@ -130,8 +130,10 @@ type JsonReadResult =
 const ASSET_CONVENTIONS: readonly AssetConvention[] = [
   { directoryName: "agents", kind: "agent" },
   { directoryName: "commands", kind: "command" },
+  { directoryName: "instructions", kind: "instruction" },
   { directoryName: "skills", kind: "skill" },
 ];
+const CLAUDE_INSTRUCTION_FILE = "CLAUDE.md";
 
 const MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
 const PLUGIN_FILE = ".claude-plugin/plugin.json";
@@ -570,6 +572,11 @@ async function scanClaudeAssets(
       continue;
     }
 
+    if (convention.kind === "instruction") {
+      assets.push(...(await scanInstructionAssets(pluginPath, manifest, convention, diagnostics)));
+      continue;
+    }
+
     assets.push(...(await scanMarkdownAssets(pluginPath, manifest, convention, diagnostics)));
   }
 
@@ -644,6 +651,34 @@ async function scanMarkdownAssetsInDirectory(
     );
   }
 
+  return assets;
+}
+
+/** Scans reusable Claude instruction Markdown that can become configport-selected instructions. */
+async function scanInstructionAssets(
+  pluginPath: string,
+  manifest: ClaudePluginManifest,
+  convention: AssetConvention,
+  diagnostics: Diagnostic[],
+): Promise<ClaudeMigrationAsset[]> {
+  const assets: ClaudeMigrationAsset[] = [];
+  const claudeInstructionPath = join(pluginPath, CLAUDE_INSTRUCTION_FILE);
+  const claudeInstructionText = await readTextFile(claudeInstructionPath, diagnostics);
+
+  if (claudeInstructionText !== undefined) {
+    assets.push(
+      createAsset(
+        manifest,
+        convention.kind,
+        basename(CLAUDE_INSTRUCTION_FILE, ".md").toLowerCase(),
+        pluginPath,
+        claudeInstructionPath,
+        claudeInstructionText,
+      ),
+    );
+  }
+
+  assets.push(...(await scanMarkdownAssets(pluginPath, manifest, convention, diagnostics)));
   return assets;
 }
 
@@ -905,6 +940,10 @@ function payloadFileName(kind: ClaudeMigrationAssetKind): string {
     return "COMMAND.md";
   }
 
+  if (kind === "instruction") {
+    return "INSTRUCTION.md";
+  }
+
   return "SKILL.md";
 }
 
@@ -916,6 +955,10 @@ function assetKindDirectory(kind: ClaudeMigrationAssetKind): string {
 
   if (kind === "command") {
     return "commands";
+  }
+
+  if (kind === "instruction") {
+    return "instructions";
   }
 
   return "skills";
