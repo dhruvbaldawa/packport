@@ -1,6 +1,3 @@
-ABOUTME: Captures the current design for an open-source portable agent-pack authoring tool.
-ABOUTME: Documents how ccconfigs dogfoods the tools, plus current decisions and unresolved design work.
-
 # packport Portable Agent Packs Design
 
 ## Status

@@ -1,0 +1,80 @@
+# Configuring With configport
+
+configport applies local profile overlays to generated package output. Use it when a generated pack
+contains literals or files that must vary by user, machine, profile, or target harness.
+
+## The Model
+
+One overlay is selected by:
+
+```text
+profile + target + pack
+```
+
+It can contain:
+
+- replacements: exact text substitutions applied to generated files.
+- files: local files written into the materialized output tree.
+
+The state file is named `configport.json` and lives under the state root you choose.
+
+## Store Replacements
+
+```bash
+bun src/cli.ts configport overlay put .configport personal codex essentials \
+  --replace "Existing Name=New Name" \
+  --replace "/old/local/path=/new/local/path"
+```
+
+The selector above means:
+
+- state root: `.configport`
+- profile: `personal`
+- target: `codex`
+- pack: `essentials`
+
+Running `overlay put` for the same selector replaces that selector's overlay. Other overlays in the
+same `configport.json` are preserved.
+
+## Store Local Files
+
+```bash
+bun src/cli.ts configport overlay put .configport personal codex essentials \
+  --file "settings.local.json={\"enabled\":true}"
+```
+
+Use file overlays only for local/profile-specific files. Reusable behavior should move into pack
+source instead.
+
+## Apply An Overlay
+
+```bash
+bun src/cli.ts configport apply .configport .packs/codex/essentials .materialized/codex/essentials \
+  --profile personal \
+  --target codex \
+  --pack essentials
+```
+
+This copies generated files from `.packs/codex/essentials`, applies replacements, adds overlay
+files, and writes the result to `.materialized/codex/essentials`.
+
+The output path must not be the generated package path or inside it.
+
+## What Not To Do
+
+- Do not put secrets in reusable pack source.
+- Do not hand-edit `.packs/<target>/` after generation.
+- Do not use overlays for behavior that every user of the pack should receive.
+- Do not materialize output back into source `packs/`.
+
+## Safety Checks
+
+configport rejects:
+
+- empty profile, target, or pack selectors.
+- empty replacement source text.
+- unsafe overlay file paths.
+- duplicate overlay file paths.
+- missing generated output.
+- symlinks in generated, state, or materialized output paths.
+- materialized output paths that collide with each other.
