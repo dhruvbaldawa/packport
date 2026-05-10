@@ -24,6 +24,8 @@ description: Core workflows.
 
 - Git read capability.
 `,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
+        "# Repo Workflow\n\nUse repository context.\n",
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n\nFind root causes.\n",
     });
 
@@ -37,6 +39,7 @@ description: Core workflows.
     expect(pack?.name).toBe("Essentials");
     expect(pack?.assets.map((asset) => asset.id)).toEqual([
       "essentials/command/commit",
+      "essentials/instruction/repo-workflow",
       "essentials/skill/debugging",
     ]);
 
@@ -52,6 +55,167 @@ description: Core workflows.
 
     const skill = pack?.assets.find((asset) => asset.id === "essentials/skill/debugging");
     expect(skill?.contract).toBeUndefined();
+  });
+
+  test("discovers declared portable refs in pack, asset, and payload scopes", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+
+# Essentials
+
+## Configuration
+
+- {{config.review_voice}} controls review tone.
+`,
+      "packs/essentials/instructions/repo-workflow/ASSET.md": `# Packaging Notes
+
+## Needs
+
+- {{tool.git.read}} for repository inspection.
+`,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
+        "Use {{tool.git.read}} before writing notes in {{config.review_voice}}.\n",
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+
+    const pack = result.index.packs[0];
+    const instruction = pack?.assets[0];
+
+    expect(pack?.declaredRefs.map((ref) => ref.raw)).toEqual(["{{config.review_voice}}"]);
+    expect(instruction?.declaredRefs.map((ref) => ref.raw)).toEqual(["{{tool.git.read}}"]);
+    expect(instruction?.payloadRefs.map((ref) => ref.raw)).toEqual([
+      "{{tool.git.read}}",
+      "{{config.review_voice}}",
+    ]);
+  });
+
+  test("reports missing instruction payload files", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+    });
+    await mkdir(join(rootPath, "packs/essentials/instructions/repo-workflow"), {
+      recursive: true,
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "missing-payload",
+      message: `Asset 'repo-workflow' is missing payload file ${join(
+        rootPath,
+        "packs/essentials/instructions/repo-workflow/INSTRUCTION.md",
+      )}.`,
+      path: join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      severity: "error",
+    });
+  });
+
+  test("reports undeclared portable refs in payload files", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
+        "Inspect with {{tool.git.read}}.\n",
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "undeclared-portable-ref",
+      message: "Portable ref '{{tool.git.read}}' must be declared in PACK.md or ASSET.md.",
+      path: join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      severity: "error",
+    });
+  });
+
+  test("does not treat Claude command argument placeholders as portable refs", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": `Plan this request: $${"{{{ARGS}}}"}\n`,
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.index.packs[0]?.assets[0]?.payloadRefs).toEqual([]);
+  });
+
+  test("rejects unsupported portable ref namespaces and template-like expressions", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
+        "Write for {{user.name}} and avoid {{tool.git.read | upper}}.\n",
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unknown-portable-ref-namespace",
+      message: "Portable ref '{{user.name}}' must use one of: config, mcp, tool.",
+      path: join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      severity: "error",
+    });
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-portable-ref",
+      message:
+        "Portable ref '{{tool.git.read | upper}}' must be a simple config.*, mcp.*, or tool.* reference.",
+      path: join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      severity: "error",
+    });
+  });
+
+  test("rejects unclosed portable refs", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
+        "Write notes in {{config.review_voice.\n",
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-portable-ref",
+      message: "Portable ref is missing a closing }} delimiter.",
+      path: join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      severity: "error",
+    });
   });
 
   test("reports missing payload files", async () => {

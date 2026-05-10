@@ -83,6 +83,27 @@ payload: SKILL.md
     await expect(lstat(join(outputPath, ".opencode/skills/debugging/ASSET.md"))).rejects.toThrow();
   });
 
+  test("normalizes Claude triple-brace command arguments without portable-ref diagnostics", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = await createTempRepository("packport-opencode-output-");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": `Task: $${"{{{ARGS}}}"}\n`,
+    });
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(await readFile(join(outputPath, ".opencode/commands/plan.md"), "utf8")).toBe(
+      ["---", 'description: "plan command"', "---", "", "Task: $ARGUMENTS", ""].join("\n"),
+    );
+  });
+
   test("preserves existing OpenCode config keys", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");

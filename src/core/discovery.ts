@@ -4,13 +4,16 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { parseMarkdownContract } from "./markdown";
+import { portableRefKey, scanPortableRefs } from "./refs";
 import type {
   AssetIndex,
   AssetKind,
   Diagnostic,
   DiscoveryResult,
   MarkdownFieldValue,
+  MarkdownSection,
   PackIndex,
+  PortableRef,
 } from "./types";
 
 type AssetConvention = {
@@ -23,6 +26,7 @@ const ASSET_CONVENTIONS: readonly AssetConvention[] = [
   { directoryName: "agents", kind: "agent", payloadFile: "AGENT.md" },
   { directoryName: "commands", kind: "command", payloadFile: "COMMAND.md" },
   { directoryName: "hooks", kind: "hook", payloadFile: "HOOK.md" },
+  { directoryName: "instructions", kind: "instruction", payloadFile: "INSTRUCTION.md" },
   { directoryName: "skills", kind: "skill", payloadFile: "SKILL.md" },
 ];
 
@@ -75,11 +79,13 @@ async function discoverPack(
 
   const document = parseMarkdownContract(packFilePath, packText, "pack");
   diagnostics.push(...document.diagnostics);
+  const declaredRefs = collectDeclaredRefs(packFilePath, document.sections, diagnostics);
 
-  const assets = await discoverPackAssets(packId, directoryPath, diagnostics);
+  const assets = await discoverPackAssets(packId, directoryPath, declaredRefs, diagnostics);
 
   return {
     assets,
+    declaredRefs,
     description: stringField(document.keys.description) ?? "",
     directoryPath,
     id: packId,
@@ -94,6 +100,7 @@ async function discoverPack(
 async function discoverPackAssets(
   packId: string,
   packPath: string,
+  packDeclaredRefs: readonly PortableRef[],
   diagnostics: Diagnostic[],
 ): Promise<AssetIndex[]> {
   const assets: AssetIndex[] = [];
@@ -103,7 +110,9 @@ async function discoverPackAssets(
     const assetNames = await safeDirectoryNames(kindPath);
 
     for (const assetName of assetNames) {
-      assets.push(await discoverAsset(packId, kindPath, assetName, convention, diagnostics));
+      assets.push(
+        await discoverAsset(packId, kindPath, assetName, convention, packDeclaredRefs, diagnostics),
+      );
     }
   }
 
@@ -116,6 +125,7 @@ async function discoverAsset(
   kindPath: string,
   assetName: string,
   convention: AssetConvention,
+  packDeclaredRefs: readonly PortableRef[],
   diagnostics: Diagnostic[],
 ): Promise<AssetIndex> {
   const directoryPath = join(kindPath, assetName);
@@ -132,6 +142,11 @@ async function discoverAsset(
     diagnostics,
   );
   const payloadPaths = payloadRelativePaths.map((payloadPath) => join(directoryPath, payloadPath));
+  const declaredRefs =
+    parsedContract === undefined
+      ? []
+      : collectDeclaredRefs(contractPath, parsedContract.sections, diagnostics);
+  const payloadRefs: PortableRef[] = [];
 
   for (const payloadPath of payloadPaths) {
     if (!(await fileExists(payloadPath))) {
@@ -141,8 +156,13 @@ async function discoverAsset(
         path: payloadPath,
         severity: "error",
       });
+      continue;
     }
+
+    payloadRefs.push(...(await collectPayloadRefs(payloadPath, diagnostics)));
   }
+
+  validateDeclaredPayloadRefs(payloadRefs, [...packDeclaredRefs, ...declaredRefs], diagnostics);
 
   if (parsedContract) {
     diagnostics.push(...parsedContract.diagnostics);
@@ -154,12 +174,66 @@ async function discoverAsset(
 
   return {
     ...(contract ? { contract } : {}),
+    declaredRefs,
     directoryPath,
     id: `${packId}/${convention.kind}/${assetName}`,
     kind: convention.kind,
     name: assetName,
     payloadPaths,
+    payloadRefs,
   };
+}
+
+/** Collects portable ref declarations from control-plane Markdown sections. */
+function collectDeclaredRefs(
+  path: string,
+  sections: readonly MarkdownSection[],
+  diagnostics: Diagnostic[],
+): PortableRef[] {
+  const refs: PortableRef[] = [];
+
+  for (const section of sections) {
+    const result = scanPortableRefs(path, section.body);
+    diagnostics.push(...result.diagnostics);
+    refs.push(...result.refs);
+  }
+
+  return refs;
+}
+
+/** Collects portable refs from a payload file without parsing any other payload semantics. */
+async function collectPayloadRefs(path: string, diagnostics: Diagnostic[]): Promise<PortableRef[]> {
+  const text = await safeReadFile(path);
+
+  if (text === undefined) {
+    return [];
+  }
+
+  const result = scanPortableRefs(path, text);
+  diagnostics.push(...result.diagnostics);
+  return [...result.refs];
+}
+
+/** Reports payload refs that are not declared at pack or asset scope. */
+function validateDeclaredPayloadRefs(
+  payloadRefs: readonly PortableRef[],
+  declaredRefs: readonly PortableRef[],
+  diagnostics: Diagnostic[],
+): void {
+  const declared = new Set(declaredRefs.map((ref) => portableRefKey(ref)));
+
+  for (const ref of payloadRefs) {
+    if (declared.has(portableRefKey(ref))) {
+      continue;
+    }
+
+    diagnostics.push({
+      code: "undeclared-portable-ref",
+      message: `Portable ref '${ref.raw}' must be declared in PACK.md or ASSET.md.`,
+      path: ref.path,
+      severity: "error",
+    });
+  }
 }
 
 /** Resolves convention payloads plus optional ASSET.md overrides into relative paths. */

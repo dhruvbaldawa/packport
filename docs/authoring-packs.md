@@ -29,24 +29,19 @@ Those are the only structured fields currently accepted in `PACK.md`.
 
 ## Asset Directories
 
-The current implementation discovers these asset kinds:
+packport discovers these asset kinds:
 
 ```text
 packs/<pack>/
   agents/<name>/AGENT.md
   commands/<name>/COMMAND.md
   hooks/<name>/HOOK.md
+  instructions/<name>/INSTRUCTION.md
   skills/<name>/SKILL.md
 ```
 
 The payload file is opaque to packport except where a target emitter adapts native frontmatter.
 Support files inside a skill directory are copied by the OpenCode and Codex generators.
-
-The locked v1 design adds runtime instruction assets:
-
-```text
-packs/<pack>/instructions/<name>/INSTRUCTION.md
-```
 
 `PACK.md` and `ASSET.md` are control-plane Markdown for packport, configport, and skills.
 `INSTRUCTION.md` is runtime payload Markdown: it is reusable guidance that configport can
@@ -72,11 +67,11 @@ Rules:
 - use either `payload` or `payloads`, not both.
 - payload paths must be relative to the asset directory.
 - payload paths must not contain `..` or absolute paths.
-- the locked v1 design removes the legacy `templated` field; do not use it in new pack source.
+- `templated` is not accepted.
 
 ## Portable Refs
 
-The locked v1 design makes payload files explicit-ref-aware by default:
+Payload files are explicit-ref-aware by default:
 
 ```md
 Use {{tool.git.read}} before summarizing repository state.

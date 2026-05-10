@@ -1,7 +1,7 @@
 // ABOUTME: Defines packport's core index, contract, and diagnostic types.
 // ABOUTME: Keeps discovery and parser modules aligned on one small data shape.
 
-export type AssetKind = "agent" | "command" | "hook" | "skill";
+export type AssetKind = "agent" | "command" | "hook" | "instruction" | "skill";
 
 export type DiagnosticSeverity = "error" | "warning";
 
@@ -10,6 +10,15 @@ export type ContractKind = "asset" | "pack";
 export type MarkdownFieldValue = string | readonly string[];
 
 export type MarkdownKeyValues = Record<string, MarkdownFieldValue>;
+
+export type PortableRefNamespace = "config" | "mcp" | "tool";
+
+export type PortableRef = {
+  readonly name: string;
+  readonly namespace: PortableRefNamespace;
+  readonly path: string;
+  readonly raw: string;
+};
 
 export type SectionName =
   | "Configuration"
@@ -26,11 +35,13 @@ export type AssetContract = {
 };
 
 export type AssetIndex = {
+  readonly declaredRefs: readonly PortableRef[];
   readonly id: string;
   readonly name: string;
   readonly kind: AssetKind;
   readonly directoryPath: string;
   readonly payloadPaths: readonly string[];
+  readonly payloadRefs: readonly PortableRef[];
   readonly contract?: AssetContract;
 };
 
@@ -59,6 +70,7 @@ export type MarkdownSection = {
 };
 
 export type PackIndex = {
+  readonly declaredRefs: readonly PortableRef[];
   readonly id: string;
   readonly directoryPath: string;
   readonly packFilePath: string;

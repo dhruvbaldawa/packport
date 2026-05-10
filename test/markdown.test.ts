@@ -121,28 +121,8 @@ description: Core agent workflows.
     });
   });
 
-  test("validates templated values", () => {
-    const document = parseMarkdownContract(
-      "packs/essentials/commands/commit/ASSET.md",
-      `---
-templated: maybe
----
-`,
-      "asset",
-    );
-
-    expect(document.diagnostics).toEqual([
-      {
-        code: "invalid-templated-value",
-        message: "templated must be either true or false.",
-        path: "packs/essentials/commands/commit/ASSET.md",
-        severity: "error",
-      },
-    ]);
-  });
-
-  test("accepts boolean templated values", () => {
-    const trueDocument = parseMarkdownContract(
+  test("rejects legacy templated fields", () => {
+    const frontmatterDocument = parseMarkdownContract(
       "packs/essentials/commands/commit/ASSET.md",
       `---
 templated: true
@@ -150,17 +130,28 @@ templated: true
 `,
       "asset",
     );
-    const falseDocument = parseMarkdownContract(
+    const bodyDocument = parseMarkdownContract(
       "packs/essentials/commands/commit/ASSET.md",
-      `---
-templated: false
----
-`,
+      "templated: true\n",
       "asset",
     );
 
-    expect(trueDocument.diagnostics).toEqual([]);
-    expect(falseDocument.diagnostics).toEqual([]);
+    expect(frontmatterDocument.diagnostics).toEqual([
+      {
+        code: "unknown-field",
+        message: "Unknown asset frontmatter field 'templated'.",
+        path: "packs/essentials/commands/commit/ASSET.md",
+        severity: "error",
+      },
+    ]);
+    expect(bodyDocument.diagnostics).toEqual([
+      {
+        code: "legacy-field-location",
+        message: "ASSET.md field 'templated' must be declared in YAML frontmatter.",
+        path: "packs/essentials/commands/commit/ASSET.md",
+        severity: "error",
+      },
+    ]);
   });
 
   test("warns on unknown prose headings", () => {

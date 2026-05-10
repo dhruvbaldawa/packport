@@ -11,7 +11,7 @@ import type {
 } from "./types";
 
 const PACK_FIELDS = new Set(["description", "name", "version"]);
-const ASSET_FIELDS = new Set(["payload", "payloads", "templated"]);
+const ASSET_FIELDS = new Set(["payload", "payloads"]);
 const PACK_REQUIRED_FIELDS = ["name", "version", "description"] as const;
 const SECTION_NAMES = new Set([
   "Configuration",
@@ -176,15 +176,6 @@ function normalizeFrontmatterValue(
 
   const normalizedValue = value === null ? "" : String(value).trim();
 
-  if (kind === "asset" && field === "templated" && !["false", "true"].includes(normalizedValue)) {
-    diagnostics.push({
-      code: "invalid-templated-value",
-      message: "templated must be either true or false.",
-      path,
-      severity: "error",
-    });
-  }
-
   return normalizedValue;
 }
 
@@ -202,6 +193,7 @@ function validateBodyFrontmatterBoundary(
   const bodyFields = new Set([
     ...allowedFields,
     ...[...allowedFields].map((field) => titleCaseField(field)),
+    ...(kind === "asset" ? ["templated", "Templated"] : []),
   ]);
 
   for (const line of prefixLines) {
