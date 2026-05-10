@@ -29,7 +29,7 @@ Those are the only structured fields currently accepted in `PACK.md`.
 
 ## Asset Directories
 
-packport discovers these asset kinds:
+The current implementation discovers these asset kinds:
 
 ```text
 packs/<pack>/
@@ -41,6 +41,16 @@ packs/<pack>/
 
 The payload file is opaque to packport except where a target emitter adapts native frontmatter.
 Support files inside a skill directory are copied by the OpenCode and Codex generators.
+
+The locked v1 design adds runtime instruction assets:
+
+```text
+packs/<pack>/instructions/<name>/INSTRUCTION.md
+```
+
+`PACK.md` and `ASSET.md` are control-plane Markdown for packport, configport, and skills.
+`INSTRUCTION.md` is runtime payload Markdown: it is reusable guidance that configport can
+materialize into target files such as `CLAUDE.md`, `AGENTS.md`, or OpenCode rule/config files.
 
 ## Optional ASSET.md
 
@@ -54,7 +64,6 @@ payload: README.md
 payloads:
   - SKILL.md
   - helper.ts
-templated: true
 ---
 ```
 
@@ -63,7 +72,28 @@ Rules:
 - use either `payload` or `payloads`, not both.
 - payload paths must be relative to the asset directory.
 - payload paths must not contain `..` or absolute paths.
-- `templated` must be `true` or `false`.
+- the locked v1 design removes the legacy `templated` field; do not use it in new pack source.
+
+## Portable Refs
+
+The locked v1 design makes payload files explicit-ref-aware by default:
+
+```md
+Use {{tool.git.read}} before summarizing repository state.
+Write review notes in {{config.review_voice}}.
+Start {{mcp.todoist}} only when the selected profile enables it.
+```
+
+Supported namespaces are only:
+
+- `{{config.*}}`
+- `{{tool.*}}`
+- `{{mcp.*}}`
+
+Portable refs are not a template language. Loops, filters, expressions, conditionals, partials, and
+implicit variable discovery are not supported. Refs should be declared in `PACK.md` or `ASSET.md`
+using the supported prose sections below. Installed target files should render refs into
+target-specific prose or config; unresolved config refs block configport apply.
 
 ## Supported Sections
 
@@ -97,6 +127,7 @@ skills or plugins. Keep names at 64 characters or less.
 Put this in pack source:
 
 - reusable instructions
+- instruction assets under `instructions/<name>/INSTRUCTION.md`
 - skill workflows
 - agent roles
 - command bodies
@@ -111,6 +142,7 @@ Put this in configport state:
 - secrets or secret references
 - private endpoints
 - selected packs for one profile
+- selected instruction assets for a target and scope
 - materialized target-tool settings
 
 If a value would make sense for another user of the pack, it is probably source. If it only makes

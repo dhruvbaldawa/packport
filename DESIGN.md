@@ -2,7 +2,7 @@
 
 ## Status
 
-This is a design snapshot before walking through user journeys. It records current decisions, working assumptions, and unresolved questions.
+This is a design snapshot for the skill-first v1 implementation. It records locked decisions, working assumptions, and the smaller dogfood path needed before broader integrations.
 
 ## Goal
 
@@ -23,6 +23,7 @@ What this is trying to achieve:
 - Let pack repositories declare their own customization options without those options becoming part of the generic tool.
 - Keep real payload content single-purpose: it should express agent behavior, instructions, or executable code, not portable-pack metadata.
 - Treat generated plugins, marketplaces, lockfiles, and installed harness config as tool-produced artifacts. Users should edit source packs and local configuration answers, not hand-maintain generated output.
+- Let skills decide and edit source/config intent; deterministic primitives own every durable artifact boundary.
 
 Occam's razor:
 
@@ -32,6 +33,7 @@ Occam's razor:
 - Do not hide tool metadata inside payload files.
 - Do not force YAML when Markdown plus directory conventions are enough.
 - Do not make adapters smart when a skill can make the judgment and write local notes.
+- Do not make portable references into a template language.
 
 Simplified authoring does not mean reduced target fidelity. The tool should still aim to generate full native harness output where the harness has stable documented support. The simplification is in how users author packs, not in what the tool can emit.
 
@@ -66,6 +68,8 @@ skills = agent-facing workflows that use local context and call deterministic to
 ```
 
 The harness agent acts like the shell. Skills are the primary executable workflow unit. The user should usually interact through skills inside Claude Code, OpenCode, Codex, or another harness. The tool should still expose deterministic commands, but those commands are primitives that skills call, not the primary UX.
+
+The split is intentional: the harness provides conversation, judgment, local inspection, and orchestration; the skill is the executable workflow; the TypeScript program is the small deterministic substrate for discovery, validation, generation, application, provenance, and drift checks.
 
 `packport` has two generated output categories:
 
@@ -161,14 +165,21 @@ The generic tools must not know about `Dhruv`, `ccconfigs`, local machine paths,
 
 `ccconfigs` should act as a real dogfood pack repository.
 
-It should provide:
+V1 should prove one golden path before modeling every existing integration:
 
-- Portable packs for essentials, writing, and experimental workflows first.
+- Essentials pack source.
+- User and project instruction assets.
+- Claude Code, OpenCode, and Codex generation.
+- Local-first Claude and Codex marketplace metadata.
+- Configport selection/application for local instruction placement and answers.
+- Drift checks through `pack.lock.yaml` and configport applied state.
+
+Once the essentials path works, later dogfood passes can add:
+
+- Writing and experimental workflow packs.
 - Follow-up packs or target-specific dogfood for notifications and Todoist once hooks, session state, scripts, and secrets are modeled cleanly.
 - Pack-owned customization declarations such as writing voice preferences, Todoist settings, model roles, and optional endpoints.
 - Dogfood configuration examples for `configport`, without making local values part of portable pack source.
-- Generated `.packs/` output packages for Claude Code, OpenCode, and Codex.
-- Generated native Claude and Codex marketplace metadata that points at local generated packages for dogfooding.
 
 The generic tool must still be designed for other users. Any ccconfigs-specific migration note, local path, personal endpoint, or private default belongs in ccconfigs source, generated ccconfigs output, or configport state, never in the reusable tool behavior.
 
@@ -188,6 +199,9 @@ packs/
     commands/commit/
       COMMAND.md
       ASSET.md        # optional, only for non-obvious packaging facts
+    instructions/repo-workflow/
+      INSTRUCTION.md
+      ASSET.md        # optional, e.g. refs, config declarations, or load intent
     hooks/notify/
       HOOK.md
       notify.ts
@@ -230,14 +244,19 @@ The tool should use deterministic Markdown and directory conventions to build a 
 
 Do not mix real payload content with tool control information.
 
-There are two source artifact classes:
+There are three source artifact classes:
 
 - Payload files: the agent-facing prompt, skill, command prose, hook script, or executable code.
 - Optional asset contracts: pack-owned Markdown files that describe non-obvious packaging intent.
+- Pack contracts: `PACK.md` files that describe pack-level metadata, dependencies, and declarations.
+
+`PACK.md` and `ASSET.md` are control-plane Markdown. They instruct `packport`, `configport`, and control skills. They are not emitted as runtime behavior for the target agent.
+
+`INSTRUCTION.md` is runtime payload Markdown. It is a reusable instruction fragment intended to become visible to Claude Code, OpenCode, Codex, or another harness as memory, rules, or operating guidance after `configport` selects a target and scope.
 
 Payload files are opaque by default. The tool can copy them, wrap them, or transform target-native syntax, but it should not require hidden comments, special headings, or portable-pack frontmatter inside them.
 
-Directory conventions infer identity, kind, and the standard payload file. `ASSET.md` exists only when the convention is not enough: capability needs, dependencies, customization, multiple payloads, nonstandard filenames, or source-level constraints.
+Directory conventions infer identity, kind, and the standard payload file. `ASSET.md` exists only when the convention is not enough: capability needs, dependencies, customization, explicit refs, multiple payloads, nonstandard filenames, or source-level constraints.
 
 Asset contracts can use small Markdown sections and lists because they are explicitly tool-facing source, not content the target agent should read as its capability instructions.
 
@@ -270,7 +289,9 @@ Rules:
 - Asset contracts must not contain agent-facing instructions that are required for correct behavior.
 - Tool-only or target-specific fields do not belong in payload frontmatter.
 - Target-native frontmatter already required by a payload format is allowed, but it is treated as payload syntax, not as the portable contract.
-- Templating is off by default. A placeholder-looking string such as `{{user_name}}` is literal text unless pack source explicitly opts that payload into templating.
+- Portable refs are recognized by default only for the explicit namespaces `{{config.*}}`, `{{tool.*}}`, and `{{mcp.*}}`.
+- Portable refs are not a template language: no loops, filters, expressions, partials, or implicit variable discovery.
+- Installed target files should render portable refs into target-specific prose or config. Unresolved refs should block materialization rather than leak into `CLAUDE.md`, `AGENTS.md`, OpenCode rules, or native target config.
 - The lockfile records interpreted conventions and optional asset contracts that affect generation.
 - Unknown structured contract fields should fail validation unless explicitly namespaced as experimental.
 - Freeform contract prose is allowed only in named sections such as `Needs`, `Dependencies`, `Configuration`, `Source Constraints`, `Notes`, and `Experimental:<name>`.
@@ -291,6 +312,7 @@ Asset-specific responsibilities should live at the narrowest source scope:
 - A command payload owns named user-invoked behavior.
 - A workflow payload, if introduced, owns reusable procedural behavior that is not necessarily a named command.
 - An agent payload owns its role instructions.
+- An instruction payload owns reusable runtime guidance, memory, rules, or operating policy.
 - A skill owns its own trigger description and references.
 - A hook payload owns its behavior.
 - A script owns its own execution behavior and environment expectations.
@@ -298,6 +320,8 @@ Asset-specific responsibilities should live at the narrowest source scope:
 - Optional `ASSET.md` contracts own non-obvious needs, dependencies, configuration declarations, nonstandard payload paths, and source-level constraints.
 
 Target resolvers own the default mapping from those asset kinds to target harness outputs. Asset contracts should describe needs and constraints, not target mappings. Conversion decisions and accepted degradation belong in lockfile decisions, with reports generated from those decisions, unless they are true source-level portability assumptions.
+
+Instruction placement is configuration, not pack source. Pack source provides reusable instruction fragments. `configport` selects which fragments apply to a user, project, target, profile, or scope, then materializes them using target-native imports/references where stable and managed blocks otherwise.
 
 The default should be convention-based discovery: asset directories contain standard payload files and may contain `ASSET.md` when the convention is not enough. `PACK.md` should only list individual assets when the default discovery rules are not enough.
 
@@ -310,8 +334,10 @@ Core structure should stay close to:
 - Pack name, version, and description.
 - Asset identity, kind, and standard payload path inferred from directory conventions.
 - Optional asset contract path.
+- Runtime instruction fragments discovered by convention.
 - Pack dependencies when declared.
 - Customization variables when declared by the pack.
+- Explicit portable refs declared by the pack or asset.
 - Compatibility constraints when an asset truly cannot support a target.
 - Generated output ownership.
 
@@ -328,6 +354,9 @@ V1 should use the smallest parser surface that can support deterministic generat
 - Unknown prose headings warn unless they are namespaced as `Experimental:<name>`.
 - `PACK.md` required frontmatter fields: `name`, `version`, `description`.
 - `ASSET.md` has no required frontmatter fields when conventions infer identity, kind, and payload path.
+- `ASSET.md` accepted frontmatter fields stay limited to packaging facts such as `payload` and `payloads`.
+- `templated` is not an accepted field.
+- Portable refs use only `{{config.<name>}}`, `{{tool.<name>}}`, and `{{mcp.<name>}}`.
 
 ## Why Parse PACK.md And ASSET.md
 
@@ -348,6 +377,8 @@ The parser should not:
 - Infer agent behavior from payload prose.
 - Treat arbitrary Markdown as schema.
 - Decide target-specific rendering policy.
+
+The parser may scan payload files for explicit portable refs. Ref scanning validates declarations and namespaces; it does not infer behavior from prose.
 
 Skip IR in v1. Do not ask authors to write or understand an intermediate representation, and do not build one unless real usage proves the index is insufficient. A lightweight index plus lockfile is enough:
 
@@ -396,7 +427,7 @@ Some structure is still required for reproducible generation:
 - Customization keys where the pack needs user-provided values.
 - Source-level portability constraints.
 
-That structure can live in Markdown headings, tables, lists, and small key-value sections inside `PACK.md` and optional `ASSET.md`. Complex harness behavior should prefer clear language over prematurely rigid schema when the resolver can apply the rule correctly or report an issue. Keep payload language in payload files, and keep tool metadata out of those files.
+That structure can live in Markdown headings, tables, lists, and small key-value sections inside `PACK.md` and optional `ASSET.md`. Complex harness behavior should prefer clear language over prematurely rigid schema when the resolver can apply the rule correctly or report an issue. Keep payload language in payload files, keep tool metadata out of those files, and keep installation choices in configport state.
 
 ## Determinism Boundary
 
@@ -425,6 +456,7 @@ Better distinction:
 - Incremental updates should preserve existing payload, contract, and generated output shape.
 - Deterministic primitives should validate conventions, record generated files, and detect drift.
 - Target resolvers should make deterministic harness decisions using conventions, optional contracts, and harness references. Skills handle resolver issues, user choices, and source repairs.
+- Durable artifacts such as `.packs/`, native marketplaces, `pack.lock.yaml`, configport applied-state records, and installed files are written only by deterministic primitives.
 
 ## Language-First Mappings
 
@@ -513,7 +545,7 @@ They should be encapsulated at the smallest useful scope. Do not place every not
 | Commands versus skills | Claude and OpenCode support commands; Codex source commands often fit better as skills. | Author as a command when the source intent is named user invocation. Resolver chooses command or skill per target and records conversion decisions. |
 | Agent orchestration | Subagents, worker agents, parallelism, task depth, and child-session UX differ heavily. | Describe orchestration intent in the contract. Resolver maps normal cases; skills handle ambiguous cases. |
 | Hook lifecycle | Event names, payloads, timing, and command execution differ per harness. | Describe trigger intent and payload expectations in the contract; resolver plans native hooks and emitter serializes them. |
-| Context and instruction precedence | Rule files, global/project scope, compatibility fallbacks, and external references differ. | Describe which instructions should always load versus lazy-load in the contract; resolver places files conservatively. |
+| Context and instruction precedence | Rule files, global/project scope, compatibility fallbacks, and external references differ. | Source packs provide instruction fragments. Configport owns target/scope selection and placement. |
 | Model/provider tuning | Model IDs, reasoning settings, service tiers, and provider options change often. | Use plain roles like fast/strong/review in contracts; resolver maps roles through harness references/config. |
 | MCP dependencies | Install, auth, env vars, enabled tools, and startup behavior differ per harness. | Describe dependency purpose and required env vars in the contract; resolver plans config and emitter serializes it. |
 | Secrets and env | Placeholder syntax and secret stores differ. | Declare variable names and explain secret source; never write secret values. |
@@ -604,6 +636,8 @@ Deterministic tool primitives should own:
 - Static target checks.
 
 Target resolvers should own what becomes what for normal cases. For hard or ambiguous mappings, resolvers should surface ambiguity back to the driving skill instead of making the emitter infer semantics from payload or freeform prose.
+
+The stable primitive vocabulary should stay small: scan, check, resolve, generate, lock, configure, apply, and explain. Skills compose those primitives into user workflows.
 
 ## migrate-claude
 
@@ -759,6 +793,26 @@ For OpenCode:
 
 No source-ID deduplication system is planned for v1. The target resolver owns logical inclusion and dedup decisions. The target validator catches duplicate output paths or conflicting generated files.
 
+## Instruction Assets
+
+Instruction assets are runtime payload fragments:
+
+```text
+packs/<pack>/instructions/<name>/INSTRUCTION.md
+packs/<pack>/instructions/<name>/ASSET.md   # optional control-plane notes
+```
+
+They are still assets, but they are not `PACK.md` or `ASSET.md`. The distinction is audience:
+
+- `PACK.md` and `ASSET.md` are read by packport, configport, and skills.
+- `INSTRUCTION.md` is read by the target runtime agent after materialization.
+
+Instruction assets should not encode user/project/global placement in source. Configport owns profile, target, scope, selection, ordering, local answers, and applied-state provenance.
+
+For v1, configport materializes selected instruction assets by using target-native imports or references where the target has a stable documented surface. When that is not stable, it writes a managed block into the target file while preserving unmanaged user content.
+
+Installed instruction files must not contain unresolved `{{config.*}}`, `{{tool.*}}`, or `{{mcp.*}}` refs. `{{config.*}}` refs require configport answers or safe defaults. `{{tool.*}}` and `{{mcp.*}}` refs render to target-specific prose or native config through harness references and accepted decisions.
+
 ## Customization
 
 Customization declarations are pack-owned. Customization values are configuration-tool-owned.
@@ -788,7 +842,7 @@ Examples from ccconfigs might include:
 `packport` only knows how to:
 
 - Validate declared types.
-- Validate declared placeholder and templating surfaces where the pack explicitly opts a payload or wrapper into substitution.
+- Validate explicit portable refs and declared configuration keys.
 - Render committed `.packs/` output using only portable pack-source defaults; it must not use profile, scope, machine, or user-local answers.
 - Refuse missing required values.
 - Report likely personal literals during migration without embedding ccconfigs-specific knowledge.
@@ -800,7 +854,8 @@ Examples from ccconfigs might include:
 - Select packs per harness/profile/scope.
 - Store and apply overlays by pack, profile, scope, and target.
 - Apply user and machine answers into target-native config files.
-- Materialize local answers into installed/profile-specific output when a selected pack declares placeholders or overlays.
+- Materialize local answers into installed/profile-specific output when a selected pack declares `config.*` refs or overlays.
+- Materialize selected instruction assets into target user/project files using native composition where stable and managed blocks otherwise.
 - Keep secret references outside pack source and generated payloads.
 
 Secrets should be emitted as environment references, not literal secret values.
@@ -809,7 +864,7 @@ Overlay rules:
 
 - Overlay state is not portable pack source.
 - Overlays must be inspectable text data, not opaque code.
-- Overlays may replace declared placeholders, add target config fragments, or patch installed/profile-materialized wrapper files when a target needs local details.
+- Overlays may supply declared `config.*` refs, add target config fragments, or patch installed/profile-materialized wrapper files when a target needs local details.
 - Overlays must not modify committed `.packs/` packages or native marketplace files; those remain packport-owned generated artifacts.
 - Overlays must not silently modify payload behavior that should live in pack source.
 - Skills may author or update overlays after explaining the implication to the user.
@@ -887,7 +942,23 @@ Possible later promotion path:
 - Reusable snippets become light structured fields.
 - Only proven stable fields become core schema.
 
-## Templates
+## Portable Refs
+
+Portable refs are explicit source syntax, not a general template engine.
+
+Supported namespaces:
+
+- `{{config.*}}` for pack-declared values supplied by configport answers or safe defaults.
+- `{{tool.*}}` for reusable tool/capability names that render to target-specific prose or native permission/config entries.
+- `{{mcp.*}}` for MCP server or dependency references that render to target-specific prose or native config entries.
+
+Rules:
+
+- All payloads are ref-aware by default.
+- Unknown namespaces fail validation.
+- Undeclared refs fail validation.
+- Unresolved `config.*` refs block configport apply.
+- No loops, filters, conditionals, expressions, or implicit variable discovery.
 
 Avoid template-heavy implementation.
 
@@ -1023,9 +1094,9 @@ The check flow should:
 - Validate pack-declared customization metadata without resolving local configuration values.
 - Build a lightweight pack index for asset identity, optional contract paths, payload paths, ownership, and simple fields.
 - Read the existing `pack.lock.yaml` for ownership and accepted decisions.
-- Resolve selected target plans using harness references and accepted decisions.
-- Render selected targets from resolved target plans.
-- Generate or update `pack.lock.yaml` and optional target package lockfiles.
+- Resolve selected target plans in memory using harness references and accepted decisions.
+- Render expected target outputs in memory for comparison when generated outputs are committed.
+- Verify `pack.lock.yaml` and optional target package lockfiles are current, or report that generation/lock update is required.
 - Run static target validators.
 - Compare generated `.packs/` output, native marketplace metadata such as `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`, and lockfiles against the committed worktree when the repository commits generated packages.
 - Verify generated Claude and Codex marketplace entries exactly match the one-plugin-per-pack target plans and point at existing generated local package paths.
@@ -1082,7 +1153,7 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 - V1 supports pack-level declarations in pack source and local answers in `configport` state.
 - Asset-specific values use namespaced keys until scoped merging is proven necessary.
 - Repeated personal literals discovered during migration can become declared customization values or configport overlays.
-- Payload templating requires explicit opt-in; otherwise placeholder-looking text is literal.
+- Explicit portable refs are recognized by default and must use `config`, `tool`, or `mcp` namespaces.
 - Configuration and overlay state is managed by `configport` primitives and driven by `configport` control skills.
 - Overlay apply/check is idempotent by profile, scope, pack, and target; cleanup removes only previously-owned overlay output.
 - Overlay drift is reported when generated or applied files differ from the recorded overlay state.
@@ -1118,13 +1189,14 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 ### Migrate ccconfigs
 
 - Current Claude-first assets are migration input, not final portable source shape.
+- The v1 dogfood bar is essentials plus user/project instruction assets across Claude Code, OpenCode, and Codex.
 - Personal pack behavior remains pack source. Local machine values, secrets, selected-pack state, and install scopes move into `configport` state or pack-declared configuration values.
 - Repeated personal values, such as names, endpoints, and local paths, should be identified during migration and moved into declarations or overlays.
 - Generated packages can be committed under `.packs/` for dogfooding, but lockfiles define ownership and drift.
 
 ## Migration Strategy
 
-Use a private beta branch for the big migration.
+Use a private beta branch for broad ccconfigs migration. V1 implementation should stay narrower than full ccconfigs coverage.
 
 Do migration/scanner work before the first target adapter. The migrated source gives the Claude adapter real dogfood input instead of only hand-authored happy-path fixtures.
 
@@ -1137,12 +1209,12 @@ Plan:
 5. Add validation and `pack.lock.yaml`/drift skeleton.
 6. Add `packport-control` pack source and a minimal control-plugin generator for at least one harness.
 7. Add `migrate-claude` skill prototype and migration scanner.
-8. Run scanner on `ccconfigs` and produce migrated source/report candidates without generated target output.
+8. Run scanner on the ccconfigs essentials path and produce migrated source/report candidates without generated target output.
 9. Add `configport` package skeleton, overlay-aware configuration primitives, and `configport-control` skill flow.
 10. Add Claude resolver, emitter, validator, and configport applier using migrated source as adapter test input.
 11. Add OpenCode resolver, emitter, validator, and configport applier.
 12. Add Codex resolver, emitter, validator, and configport applier.
-13. Generate committed `.packs/<harness>` packages and native Claude/Codex marketplace metadata.
+13. Generate committed `.packs/<harness>` packages and native Claude/Codex marketplace metadata for essentials.
 14. Beta test before merging to main.
 
 ## Review Workflow
@@ -1157,9 +1229,7 @@ Preferences:
 
 ## Open Questions
 
-- Whether `ASSET.md` optional contracts are sufficient before introducing any additional source files.
 - Which prose-first patterns are common enough to promote into reusable snippets or light structure.
-- Whether a lightweight pack index plus `pack.lock.yaml` is sufficient for incremental updates and drift checks.
 - Which generated `.packs/` artifacts should be committed versus emitted as release artifacts for non-dogfood repositories.
 - What the minimum useful `migrate-claude` prototype should support first.
 - Whether any Codex plugin surfaces need deeper research before adapter implementation.
