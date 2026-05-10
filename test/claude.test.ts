@@ -27,6 +27,13 @@ name: Essentials
 version: 1.2.3
 description: Core workflows.
 ---
+
+# Essentials
+
+## Needs
+
+- {{tool.git.read}} for repository inspection.
+- {{mcp.todoist}} when Todoist context is selected.
 `,
       "packs/essentials/agents/reviewer/AGENT.md": "Review changes.\n",
       "packs/essentials/commands/plan/COMMAND.md": [
@@ -35,14 +42,18 @@ description: Core workflows.
         "allowed-tools: Bash(git:*)",
         "---",
         "",
+        "Use {{tool.git.read}}.",
         "Task: $ARGUMENTS",
       ].join("\n"),
       "packs/essentials/skills/debugging/ASSET.md": `---
-payload: SKILL.md
+payloads:
+  - SKILL.md
+  - reference/examples.md
 ---
 `,
-      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
-      "packs/essentials/skills/debugging/reference/examples.md": "# Debugging examples\n",
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n\nUse {{mcp.todoist}}.\n",
+      "packs/essentials/skills/debugging/reference/examples.md":
+        "# Debugging examples\nUse {{tool.git.read}}.\n",
     });
 
     const result = await generateClaudeOutput(rootPath);
@@ -72,6 +83,7 @@ payload: SKILL.md
         "allowed-tools: Bash(git:*)",
         "---",
         "",
+        "Use Claude Code read tools plus Bash git status, diff, and log commands.",
         "Task: $ARGUMENTS",
         "",
       ].join("\n"),
@@ -80,11 +92,13 @@ payload: SKILL.md
       "Review changes.\n",
     );
     expect(await readFile(join(outputPath, "essentials/skills/debugging/SKILL.md"), "utf8")).toBe(
-      "# Debugging\n",
+      "# Debugging\n\nUse the Todoist MCP server configured for Claude Code.\n",
     );
     expect(
       await readFile(join(outputPath, "essentials/skills/debugging/reference/examples.md"), "utf8"),
-    ).toBe("# Debugging examples\n");
+    ).toBe(
+      "# Debugging examples\nUse Claude Code read tools plus Bash git status, diff, and log commands.\n",
+    );
     await expect(lstat(join(outputPath, "essentials/skills/debugging/ASSET.md"))).rejects.toThrow();
     expect(JSON.parse(await readFile(join(rootPath, CLAUDE_MARKETPLACE_FILE), "utf8"))).toEqual({
       name: "packport-local",

@@ -19,6 +19,14 @@ name: Essentials
 version: 1.0.0
 description: Core workflows.
 ---
+
+# Essentials
+
+## Needs
+
+- {{tool.git.read}} for repository inspection.
+- {{tool.fs.read}} for reviewing files.
+- {{mcp.todoist}} when Todoist context is selected.
 `,
       "packs/essentials/agents/reviewer/AGENT.md": [
         "---",
@@ -27,7 +35,7 @@ description: Core workflows.
         "color: red",
         "---",
         "",
-        "Review changes.",
+        "Review with {{tool.fs.read}}.",
       ].join("\n"),
       "packs/essentials/commands/plan/COMMAND.md": [
         "---",
@@ -35,14 +43,18 @@ description: Core workflows.
         "allowed-tools: Bash(git:*)",
         "---",
         "",
+        "Use {{tool.git.read}}.",
         "Task: $ARGS",
       ].join("\n"),
       "packs/essentials/skills/debugging/ASSET.md": `---
-payload: SKILL.md
+payloads:
+  - SKILL.md
+  - reference/examples.md
 ---
 `,
-      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
-      "packs/essentials/skills/debugging/reference/examples.md": "# Examples\n",
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n\nUse {{mcp.todoist}}.\n",
+      "packs/essentials/skills/debugging/reference/examples.md":
+        "# Examples\nUse {{tool.fs.read}}.\n",
     });
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
@@ -53,7 +65,15 @@ payload: SKILL.md
       $schema: "https://opencode.ai/config.json",
     });
     expect(await readFile(join(outputPath, ".opencode/commands/plan.md"), "utf8")).toBe(
-      ["---", 'description: "Plan implementation"', "---", "", "Task: $ARGUMENTS", ""].join("\n"),
+      [
+        "---",
+        'description: "Plan implementation"',
+        "---",
+        "",
+        "Use OpenCode bash permissions for git status, diff, and log commands.",
+        "Task: $ARGUMENTS",
+        "",
+      ].join("\n"),
     );
     expect(await readFile(join(outputPath, ".opencode/agents/reviewer.md"), "utf8")).toBe(
       [
@@ -64,7 +84,7 @@ payload: SKILL.md
         "color: error",
         "---",
         "",
-        "Review changes.",
+        "Review with OpenCode file read, grep, glob, and list permissions.",
         "",
       ].join("\n"),
     );
@@ -77,11 +97,13 @@ payload: SKILL.md
         "",
         "# Debugging",
         "",
+        "Use the Todoist MCP server configured for OpenCode.",
+        "",
       ].join("\n"),
     );
     expect(
       await readFile(join(outputPath, ".opencode/skills/debugging/reference/examples.md"), "utf8"),
-    ).toBe("# Examples\n");
+    ).toBe("# Examples\nUse OpenCode file read, grep, glob, and list permissions.\n");
     await expect(lstat(join(outputPath, ".opencode/skills/debugging/ASSET.md"))).rejects.toThrow();
   });
 

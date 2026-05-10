@@ -6,6 +6,7 @@ import { dirname, join, parse, relative, resolve, sep } from "node:path";
 import { isBuiltInControlPack } from "./control-packs";
 import { discoverPackRepository } from "./discovery";
 import { readPackLock, writePackGenerationLock, type LockedOutput } from "./lockfile";
+import { isAssetPayloadPath, renderAssetPayloadRefs } from "./payload-refs";
 import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 
 export type GenerateOpenCodeResult = {
@@ -350,10 +351,16 @@ async function writeAdaptedMarkdownAsset(
 ): Promise<boolean> {
   const payloadPath = firstPayloadPath(asset);
   const markdown = await readFile(payloadPath, "utf8");
+  const rendered = renderAssetPayloadRefs(asset, payloadPath, markdown, "opencode", diagnostics);
   const targetPath = join(outputPath, ".opencode", directoryName, `${asset.name}.md`);
+
+  if (rendered === undefined) {
+    return false;
+  }
+
   return addWriteOperation(
     targetPath,
-    adapt(markdown, `${asset.name} ${asset.kind}`),
+    adapt(rendered, `${asset.name} ${asset.kind}`),
     operations,
     generatedPaths,
     diagnostics,
@@ -386,7 +393,17 @@ async function copySkillAsset(
     resolve(join(asset.directoryPath, "SKILL.md")),
   ]);
   const markdown = await readFile(primaryPayloadPath, "utf8");
-  const adapted = adaptSkillMarkdown(markdown, asset.name, primaryPayloadPath, diagnostics);
+  const rendered = renderAssetPayloadRefs(
+    asset,
+    primaryPayloadPath,
+    markdown,
+    "opencode",
+    diagnostics,
+  );
+  const adapted =
+    rendered === undefined
+      ? undefined
+      : adaptSkillMarkdown(rendered, asset.name, primaryPayloadPath, diagnostics);
   let copiedFiles = 0;
 
   if (!reserveGeneratedPath(targetPath, generatedPaths, diagnostics)) {
@@ -401,6 +418,7 @@ async function copySkillAsset(
   }
 
   copiedFiles += await copySkillDirectory(
+    asset,
     asset.directoryPath,
     targetPath,
     skippedSourcePaths,
@@ -415,6 +433,7 @@ async function copySkillAsset(
 
 /** Copies skill files recursively while excluding packport source metadata. */
 async function copySkillDirectory(
+  asset: AssetIndex,
   sourcePath: string,
   targetPath: string,
   skippedSourcePaths: Set<string>,
@@ -442,6 +461,7 @@ async function copySkillDirectory(
 
     if (entry.isDirectory()) {
       copiedFiles += await copySkillDirectory(
+        asset,
         sourceEntryPath,
         targetEntryPath,
         skippedSourcePaths,
@@ -460,6 +480,31 @@ async function copySkillDirectory(
         path: sourceEntryPath,
         severity: "warning",
       });
+      continue;
+    }
+
+    if (isAssetPayloadPath(asset, sourceEntryPath)) {
+      const markdown = await readFile(sourceEntryPath, "utf8");
+      const rendered = renderAssetPayloadRefs(
+        asset,
+        sourceEntryPath,
+        markdown,
+        "opencode",
+        diagnostics,
+      );
+
+      if (
+        rendered !== undefined &&
+        addWriteOperation(
+          targetEntryPath,
+          ensureTrailingNewline(rendered),
+          operations,
+          generatedPaths,
+          diagnostics,
+        )
+      ) {
+        copiedFiles += 1;
+      }
       continue;
     }
 

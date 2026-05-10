@@ -19,19 +19,30 @@ name: Essentials
 version: 1.2.3
 description: Core workflows.
 ---
+
+# Essentials
+
+## Needs
+
+- {{tool.git.read}} for repository inspection.
+- {{tool.fs.read}} for reviewing files.
+- {{mcp.todoist}} when Todoist context is selected.
 `,
-      "packs/essentials/agents/reviewer/AGENT.md": "Review changes.\n",
+      "packs/essentials/agents/reviewer/AGENT.md": "Review with {{tool.fs.read}}.\n",
       "packs/essentials/commands/plan/COMMAND.md": [
         "---",
         "description: Plan implementation",
         "allowed-tools: Bash(git:*)",
         "---",
         "",
+        "Use {{tool.git.read}}.",
         "Task: $ARGS",
       ].join("\n"),
       "packs/essentials/commands/plan/examples.md": "# Examples\n",
       "packs/essentials/skills/debugging/ASSET.md": `---
-payload: SKILL.md
+payloads:
+  - SKILL.md
+  - reference/examples.md
 ---
 `,
       "packs/essentials/skills/debugging/SKILL.md": [
@@ -41,8 +52,11 @@ payload: SKILL.md
         "---",
         "",
         "# Debugging",
+        "",
+        "Use {{mcp.todoist}}.",
       ].join("\n"),
-      "packs/essentials/skills/debugging/reference/examples.md": "# Debugging examples\n",
+      "packs/essentials/skills/debugging/reference/examples.md":
+        "# Debugging examples\nUse {{tool.fs.read}}.\n",
     });
 
     const result = await generateCodexOutput(rootPath, outputPath);
@@ -81,6 +95,7 @@ payload: SKILL.md
         'description: "Plan implementation"',
         "---",
         "",
+        "Use Codex shell access for git status, diff, and log commands.",
         "Task: $ARGS",
         "",
       ].join("\n"),
@@ -98,13 +113,15 @@ payload: SKILL.md
         "",
         "# Debugging",
         "",
+        "Use the Todoist MCP server configured for Codex.",
+        "",
       ].join("\n"),
     );
     expect(
       await readFile(join(outputPath, "essentials/skills/debugging/reference/examples.md"), "utf8"),
-    ).toBe("# Debugging examples\n");
+    ).toBe("# Debugging examples\nUse Codex filesystem read access in the selected sandbox.\n");
     expect(await readFile(join(outputPath, "essentials/agents/reviewer.md"), "utf8")).toBe(
-      "Review changes.\n",
+      "Review with Codex filesystem read access in the selected sandbox.\n",
     );
     expect(JSON.parse(await readFile(join(rootPath, CODEX_MARKETPLACE_FILE), "utf8"))).toEqual({
       interface: { displayName: "packport Local Packs" },
@@ -178,6 +195,52 @@ payload: SKILL.md
       },
     ]);
     await expect(lstat(join(outputPath, "essentials/skills/debugging/ASSET.md"))).rejects.toThrow();
+  });
+
+  test("blocks unresolved config refs in generated payloads", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+
+# Essentials
+
+## Configuration
+
+- {{config.review_voice}} controls review tone.
+`,
+      "packs/essentials/commands/review/ASSET.md": `---
+payloads:
+  - COMMAND.md
+  - examples.md
+---
+`,
+      "packs/essentials/commands/review/COMMAND.md": "Review changes.\n",
+      "packs/essentials/commands/review/examples.md":
+        "Review changes in {{config.review_voice}}.\n",
+    });
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unresolved-config-ref",
+      message: "Portable config ref '{{config.review_voice}}' has no configured value.",
+      path: join(rootPath, "packs/essentials/commands/review/examples.md"),
+      severity: "error",
+    });
+    expect(result.summary).toEqual({
+      agents: 0,
+      commands: 0,
+      files: 0,
+      marketplaceEntries: 0,
+      plugins: 0,
+      skills: 0,
+    });
+    await expect(lstat(join(outputPath, "essentials/skills/review/SKILL.md"))).rejects.toThrow();
   });
 
   test("skips built-in control packs unless explicitly included", async () => {

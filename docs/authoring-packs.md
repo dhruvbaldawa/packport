@@ -88,7 +88,12 @@ Supported namespaces are only:
 Portable refs are not a template language. Loops, filters, expressions, conditionals, partials, and
 implicit variable discovery are not supported. Refs should be declared in `PACK.md` or `ASSET.md`
 using the supported prose sections below. Installed target files should render refs into
-target-specific prose or config; unresolved config refs block configport apply.
+target-specific prose or config.
+
+Target package generation renders declared `{{tool.*}}` and `{{mcp.*}}` refs in command, agent, and
+skill payloads. `{{config.*}}` refs need profile answers, so they block target package generation
+unless the asset is materialized later by configport, such as selected `INSTRUCTION.md` assets.
+Unresolved config refs also block configport apply.
 
 The built-in v1 alias map starts intentionally small:
 

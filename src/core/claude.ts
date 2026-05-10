@@ -16,6 +16,7 @@ import {
   type GeneratedOutput,
   type LockedOutput,
 } from "./lockfile";
+import { isAssetPayloadPath, renderAssetPayloadRefs } from "./payload-refs";
 import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 
 export const CLAUDE_DEFAULT_OUTPUT_DIRECTORY = join(".packs", "claude");
@@ -360,10 +361,15 @@ async function planMarkdownAsset(
   if (markdown === undefined) {
     return false;
   }
+  const rendered = renderAssetPayloadRefs(asset, payloadPath, markdown, "claude", diagnostics);
+
+  if (rendered === undefined) {
+    return false;
+  }
 
   return addWriteOperation(
     join(pluginPath, directoryName, `${asset.name}.md`),
-    ensureTrailingNewline(markdown),
+    ensureTrailingNewline(rendered),
     operations,
     generatedPaths,
     diagnostics,
@@ -383,16 +389,33 @@ async function planSkillAsset(
 
   const targetPath = join(pluginPath, "skills", asset.name);
   const primaryPayloadPath = firstPayloadPath(asset);
+  const markdown = await readSourceTextFile(primaryPayloadPath, diagnostics);
   let copiedFiles = 0;
+
+  if (markdown === undefined) {
+    return false;
+  }
+
+  const rendered = renderAssetPayloadRefs(
+    asset,
+    primaryPayloadPath,
+    markdown,
+    "claude",
+    diagnostics,
+  );
+
+  if (rendered === undefined) {
+    return false;
+  }
 
   if (!reserveGeneratedPath(targetPath, generatedPaths, diagnostics)) {
     return false;
   }
 
   if (
-    addCopyOperation(
+    addWriteOperation(
       join(targetPath, "SKILL.md"),
-      primaryPayloadPath,
+      ensureTrailingNewline(rendered),
       operations,
       generatedPaths,
       diagnostics,
@@ -402,6 +425,7 @@ async function planSkillAsset(
   }
 
   copiedFiles += await copySkillDirectory(
+    asset,
     asset.directoryPath,
     targetPath,
     new Set([
@@ -419,6 +443,7 @@ async function planSkillAsset(
 }
 
 async function copySkillDirectory(
+  asset: AssetIndex,
   sourcePath: string,
   targetPath: string,
   skippedSourcePaths: Set<string>,
@@ -446,6 +471,7 @@ async function copySkillDirectory(
 
     if (entry.isDirectory()) {
       copiedFiles += await copySkillDirectory(
+        asset,
         sourceEntryPath,
         targetEntryPath,
         skippedSourcePaths,
@@ -464,6 +490,28 @@ async function copySkillDirectory(
         path: sourceEntryPath,
         severity: "warning",
       });
+      continue;
+    }
+
+    if (isAssetPayloadPath(asset, sourceEntryPath)) {
+      const markdown = await readSourceTextFile(sourceEntryPath, diagnostics);
+      const rendered =
+        markdown === undefined
+          ? undefined
+          : renderAssetPayloadRefs(asset, sourceEntryPath, markdown, "claude", diagnostics);
+
+      if (
+        rendered !== undefined &&
+        addWriteOperation(
+          targetEntryPath,
+          ensureTrailingNewline(rendered),
+          operations,
+          generatedPaths,
+          diagnostics,
+        )
+      ) {
+        copiedFiles += 1;
+      }
       continue;
     }
 

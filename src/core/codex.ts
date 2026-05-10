@@ -11,6 +11,7 @@ import {
   type GeneratedOutput,
   type LockedOutput,
 } from "./lockfile";
+import { isAssetPayloadPath, renderAssetPayloadRefs } from "./payload-refs";
 import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 
 export const CODEX_DEFAULT_OUTPUT_DIRECTORY = join(".packs", "codex");
@@ -358,10 +359,15 @@ async function planCommandSkillAsset(
   if (markdown === undefined) {
     return false;
   }
+  const rendered = renderAssetPayloadRefs(asset, payloadPath, markdown, "codex", diagnostics);
+
+  if (rendered === undefined) {
+    return false;
+  }
 
   const targetPath = join(pluginPath, "skills", asset.name);
   const adapted = adaptCodexCommandSkillMarkdown(
-    markdown,
+    rendered,
     asset.name,
     `${asset.name} command from ${pack.name || pack.id}`,
     payloadPath,
@@ -416,10 +422,15 @@ async function planSkillAsset(
   if (markdown === undefined) {
     return false;
   }
+  const rendered = renderAssetPayloadRefs(asset, payloadPath, markdown, "codex", diagnostics);
+
+  if (rendered === undefined) {
+    return false;
+  }
 
   const targetPath = join(pluginPath, "skills", asset.name);
   const adapted = adaptCodexSkillMarkdown(
-    markdown,
+    rendered,
     asset.name,
     `${asset.name} skill`,
     payloadPath,
@@ -478,10 +489,15 @@ async function planAgentAsset(
   if (markdown === undefined) {
     return false;
   }
+  const rendered = renderAssetPayloadRefs(asset, payloadPath, markdown, "codex", diagnostics);
+
+  if (rendered === undefined) {
+    return false;
+  }
 
   return addWriteOperation(
     join(pluginPath, "agents", `${asset.name}.md`),
-    ensureTrailingNewline(markdown),
+    ensureTrailingNewline(rendered),
     operations,
     generatedPaths,
     diagnostics,
@@ -516,6 +532,7 @@ async function copyAssetSupportFiles(
 
     if (entry.isDirectory()) {
       copiedFiles += await copyDirectorySupportFiles(
+        asset,
         sourceEntryPath,
         targetEntryPath,
         skippedSourcePaths,
@@ -536,6 +553,28 @@ async function copyAssetSupportFiles(
       continue;
     }
 
+    if (isAssetPayloadPath(asset, sourceEntryPath)) {
+      const markdown = await readSourceTextFile(sourceEntryPath, diagnostics);
+      const rendered =
+        markdown === undefined
+          ? undefined
+          : renderAssetPayloadRefs(asset, sourceEntryPath, markdown, "codex", diagnostics);
+
+      if (
+        rendered !== undefined &&
+        addWriteOperation(
+          targetEntryPath,
+          ensureTrailingNewline(rendered),
+          operations,
+          generatedPaths,
+          diagnostics,
+        )
+      ) {
+        copiedFiles += 1;
+      }
+      continue;
+    }
+
     if (
       addCopyOperation(targetEntryPath, sourceEntryPath, operations, generatedPaths, diagnostics)
     ) {
@@ -547,6 +586,7 @@ async function copyAssetSupportFiles(
 }
 
 async function copyDirectorySupportFiles(
+  asset: AssetIndex,
   sourcePath: string,
   targetPath: string,
   skippedSourcePaths: Set<string>,
@@ -569,6 +609,7 @@ async function copyDirectorySupportFiles(
 
     if (entry.isDirectory()) {
       copiedFiles += await copyDirectorySupportFiles(
+        asset,
         sourceEntryPath,
         targetEntryPath,
         skippedSourcePaths,
@@ -586,6 +627,28 @@ async function copyDirectorySupportFiles(
         path: sourceEntryPath,
         severity: "warning",
       });
+      continue;
+    }
+
+    if (isAssetPayloadPath(asset, sourceEntryPath)) {
+      const markdown = await readSourceTextFile(sourceEntryPath, diagnostics);
+      const rendered =
+        markdown === undefined
+          ? undefined
+          : renderAssetPayloadRefs(asset, sourceEntryPath, markdown, "codex", diagnostics);
+
+      if (
+        rendered !== undefined &&
+        addWriteOperation(
+          targetEntryPath,
+          ensureTrailingNewline(rendered),
+          operations,
+          generatedPaths,
+          diagnostics,
+        )
+      ) {
+        copiedFiles += 1;
+      }
       continue;
     }
 
