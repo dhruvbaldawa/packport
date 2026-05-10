@@ -13,16 +13,19 @@ Build `packport`, an open-source tool that helps people create portable agent pa
 
 The project lives in `/home/dhruv/Code/packport`. `ccconfigs` is the dogfood repository for the tools. It should prove `packport` can migrate a real Claude Code-first pack collection into a portable format without baking Dhruv-specific assumptions into the generic tools.
 
+`packport` is a distributable tool for pack authors who have the same portability problem, not a ccconfigs-only migration script. `ccconfigs` is the proving ground, but every convention, primitive, generated layout, marketplace shape, and configuration boundary should work for unrelated public, private, team, or personal pack repositories.
+
 ## First Principles
 
 What this is trying to achieve:
 
 - Let people author useful agent capabilities once and reuse them across harnesses.
 - Let the harness LLM drive ambiguous work such as migration, setup, classification, and tradeoff decisions.
-- Keep deterministic code for boring operations: discover files, copy files, render tiny wrappers, install outputs, and check drift.
+- Keep deterministic code for boring operations: discover files, copy files, render tiny wrappers, inventory generated outputs, apply installed outputs, and check drift.
 - Keep pack content readable enough that humans and LLMs can edit it without learning a large configuration language.
 - Let pack repositories declare their own customization options without those options becoming part of the generic tool.
 - Keep real payload content single-purpose: it should express agent behavior, instructions, or executable code, not portable-pack metadata.
+- Treat generated plugins, marketplaces, lockfiles, and installed harness config as tool-produced artifacts. Users should edit source packs and local configuration answers, not hand-maintain generated output.
 
 Occam's razor:
 
@@ -47,10 +50,10 @@ The simplest useful product is:
 ```text
 Markdown pack conventions
 + built-in migration/setup/authoring skills
-+ thin Bun/TS primitives for discovery, validation, packaging, install, and drift checks
++ thin Bun/TS primitives for discovery, validation, packaging, application, and drift checks
 + target resolvers that turn conventions and optional contracts into target plans
 + native harness emitters for stable target file formats
-+ generated packport control plugins/skills for each supported harness
++ generated control plugins from pack-authored control skills for each supported harness
 ```
 
 The tool should optimize for successful AI-assisted authoring, not perfect static modeling.
@@ -59,20 +62,30 @@ The tool should optimize for successful AI-assisted authoring, not perfect stati
 
 ```text
 harness/agent = shell and driver
-packport = pack conventions, validators, resolvers, emitters, installers, and pack control skills
+packport = pack conventions, validators, resolvers, emitters, marketplaces, generated package ownership, and pack control skills
 configport = profiles, selected packs, local values, scopes, and target-tool config application
 pack repo = pack content, customization declarations, generated packages, and source docs
 skills = agent-facing workflows that use local context and call deterministic tool primitives
 ```
 
-The user should usually interact through skills inside Claude Code, OpenCode, Codex, or another harness. The tool should still expose deterministic commands, but those commands are primitives, not the primary UX.
+The harness agent acts like the shell. Skills are the primary executable workflow unit. The user should usually interact through skills inside Claude Code, OpenCode, Codex, or another harness. The tool should still expose deterministic commands, but those commands are primitives that skills call, not the primary UX.
 
 `packport` has two generated output categories:
 
 - Control plugins: harness-native packages that install `packport` skills such as migration, authoring, checking, and release workflows.
 - User pack plugins: generated packages for the portable packs authored by users or dogfood repositories.
 
-Actual interactive execution should happen through control skills. CLI commands should be deterministic primitives that skills call, not the main authoring interface.
+Actual interactive execution should happen through control skills. CLI commands should be deterministic primitives that skills call, not the main authoring interface. Generated artifacts should be produced by those primitives and checked for drift; they should not require manual editing after initial migration decisions are reflected in source packs.
+
+Source and generated paths have distinct meanings:
+
+```text
+packs/                 # canonical, human/LLM-authored portable source
+.packs/<target>/       # generated, commit-worthy harness-native package output
+native marketplace     # generated metadata at the harness's expected repo path
+```
+
+`dist/` is not the default generated package location because many repositories treat it as transient build output and ignore it by default.
 
 ## SOLID Boundaries
 
@@ -107,24 +120,27 @@ The implementation can remain flat while only `packport` exists. Once configurat
 `packport` owns:
 
 - Pack authoring conventions.
-- Built-in control skills and their harness-specific packaging.
+- Built-in control packs and their harness-specific packaging.
 - Lightweight Markdown discovery and indexing.
 - Thin harness emitters.
 - Target resolvers and default mappings for standard asset kinds.
+- Native marketplace generation for harnesses with marketplace/plugin surfaces.
 - Built-in skill recipes for semantic mappings such as permissions, hooks, customization, and Codex surfaces.
 - Static validators.
 - Migration scanners.
-- Pack install and uninstall primitives for generated pack outputs.
-- Built-in skills such as `migrate-claude`, `author-pack`, `check-pack`, `install-pack`, and `add-harness`.
+- Low-level generated package inventory and ownership primitives that configport can consume.
+- Built-in skills such as `migrate-claude`, `author-pack`, `check-pack`, `generate-pack`, `release-pack`, and `add-harness`.
 
 `configport` owns:
 
 - Installed/enabled pack state across harnesses.
 - Profiles and scopes such as global, repository-local, project, or named user profiles.
+- Chezmoi-like overlays that apply local text/config substitutions, file additions, and target-specific config fragments outside reusable pack source.
 - Local customization values for pack-declared options.
 - Target-tool configuration files and enablement state.
 - Secret references, not literal secret values.
 - Model, tool, permission, and path choices that are user/machine configuration rather than pack source.
+- Applying, updating, and uninstalling generated `.packs/<target>` packages in global, repository-local, or profile-specific harness locations.
 - Interactive configuration skills and automation commands.
 
 Shared harness packages own facts that both products need, such as target config paths, plugin install locations, stable schema details, and native feature availability.
@@ -136,10 +152,11 @@ The pack repository owns:
 - Pack-specific scripts.
 - Pack-owned skills that are part of the user's generated packs.
 - Source-level exception notes where the default tool behavior is not enough.
-- Generated harness packages.
+- Generated harness packages under `.packs/<target>/`.
+- Generated marketplace metadata for harnesses where marketplace files are part of the pack repository.
 - Pack-specific documentation and source-level compatibility decisions.
 
-Personal packs are still packs. The tools must not treat personal authorship, private distribution, or a pack name such as `writing-like-me` as a separate overlay category. The boundary is source versus configuration: reusable or personal behavior belongs in pack source; local machine values, selected-pack state, secrets, install scopes, and per-user answers belong in `configport` state.
+Personal packs are still packs. The tools must not treat personal authorship, private distribution, or a pack name such as `writing-like-me` as a separate overlay category. The boundary is source versus configuration: reusable or personal behavior belongs in pack source; local machine values, selected-pack state, secrets, install scopes, per-user answers, and local overlays belong in `configport` state.
 
 The generic tools must not know about `Dhruv`, `ccconfigs`, local machine paths, private telemetry endpoints, or other pack-specific defaults.
 
@@ -149,11 +166,14 @@ The generic tools must not know about `Dhruv`, `ccconfigs`, local machine paths,
 
 It should provide:
 
-- Portable packs for essentials, writing, notifications, and experimental workflows.
-- Claude-only Todoist integration as target-specific dogfood, not portable pack source.
+- Portable packs for essentials, writing, and experimental workflows first.
+- Follow-up packs or target-specific dogfood for notifications and Todoist once hooks, session state, scripts, and secrets are modeled cleanly.
 - Pack-owned customization declarations such as writing voice preferences, Todoist settings, model roles, and optional endpoints.
 - Dogfood configuration examples for `configport`, without making local values part of portable pack source.
-- Generated output packages for Claude Code, OpenCode, and Codex.
+- Generated `.packs/` output packages for Claude Code, OpenCode, and Codex.
+- Generated native Claude and Codex marketplace metadata that points at local generated packages for dogfooding.
+
+The generic tool must still be designed for other users. Any ccconfigs-specific migration note, local path, personal endpoint, or private default belongs in ccconfigs source, generated ccconfigs output, or configport state, never in the reusable tool behavior.
 
 ## Authoring Format
 
@@ -183,16 +203,29 @@ packs/
 `packport` itself should also ship control skill source, separate from user pack payloads:
 
 ```text
-packport/
-  skills/
-    migrate-claude/SKILL.md
-    author-pack/SKILL.md
-    check-pack/SKILL.md
-    install-pack/SKILL.md
-    add-harness/SKILL.md
+packs/
+  packport-control/
+    PACK.md
+    skills/migrate-claude/SKILL.md
+    skills/author-pack/SKILL.md
+    skills/check-pack/SKILL.md
+    skills/generate-pack/SKILL.md
+    skills/release-pack/SKILL.md
+    skills/add-harness/SKILL.md
 ```
 
-`configport` should ship its own control skill source for configuration workflows, such as `configure-pack` or `configure-tools`.
+`configport` should ship its own control skill source as a pack for configuration workflows:
+
+```text
+packs/
+  configport-control/
+    PACK.md
+    skills/configure-pack/SKILL.md
+    skills/configure-tools/SKILL.md
+    skills/apply-pack/SKILL.md
+```
+
+Control skills are therefore not a special source format. They are normal packs with special distribution and trust expectations.
 
 The tool should use deterministic Markdown and directory conventions to build a lightweight index. Users and agents should mostly edit Markdown, not YAML.
 
@@ -273,7 +306,7 @@ The default should be convention-based discovery: asset directories contain stan
 
 ## Structured Minimum
 
-Keep schema small. Use structure only for facts the tool must know to find, name, install, or validate assets.
+Keep schema small. Use structure only for facts the tool must know to find, name, package, or validate assets.
 
 Core structure should stay close to:
 
@@ -338,8 +371,9 @@ The normal authoring loop should be:
 write payload content in Markdown or code
 write or update optional ASSET.md only when packaging intent cannot be inferred
 run a tool skill such as migrate-claude, author-pack, or check-pack
-review generated native target output
-accept, edit, or record a conversion decision outside the payload when the default is wrong
+review generated native target output without editing generated files
+fix source, update configport answers/overlays, or record a conversion decision when the default is wrong
+regenerate and re-check generated output
 ```
 
 The tool should absorb harness-specific work by combining:
@@ -518,26 +552,37 @@ Skills are the primary user experience.
 
 There are three kinds of skills:
 
-- `packport` control skills live in the `packport` package. They drive authoring, migration, checking, installation, release, and harness support workflows for pack source and generated pack output.
-- `configport` control skills live in the `configport` package. They drive profile, selected-pack, local-value, scope, and target-tool configuration workflows.
+- `packport` control skills live in the `packport-control` pack. They drive authoring, migration, checking, generation, release, and harness support workflows for pack source and generated pack output.
+- `configport` control skills live in the `configport-control` pack. They drive profile, selected-pack, local-value, overlay, scope, and target-tool configuration workflows.
 - Pack payload skills live in pack repositories. They are user-facing capabilities that get emitted into generated target packages.
 
 Control skills are distributed through harness-native control plugins. Installing the `packport` control plugin gives the user pack authoring and generation workflows. Installing the `configport` control plugin gives the user configuration workflows.
 
 The CLI should remain usable without skills for automation and tests, but it should not become the primary product surface.
 
+Control skills are authored as packs so the tool dogfoods its own conventions. They may be distributed as special trusted control plugins, but their source shape should remain `PACK.md` plus skill payloads.
+
+Control pack trust rules:
+
+- Control packs are identified by tool-owned package metadata and explicit target generation commands, not by a user pack naming convention alone.
+- Control packs are excluded from normal user-pack marketplace generation unless the caller explicitly asks to build control plugins.
+- Only tool-owned control packs may expose workflows that orchestrate privileged primitives such as migration, generation, marketplace writing, install/apply, or cleanup.
+- Ordinary payload packs may still contain skills, but those skills are treated as user capabilities and do not inherit control-plugin authority.
+
 The built-in tool skills should include:
 
 - `migrate-claude`: migrate a Claude Code marketplace or plugin collection into portable pack source.
 - `author-pack`: create or extend a portable pack.
 - `check-pack`: validate conventions, lockfile state, generated outputs, and drift.
-- `install-pack`: install selected generated pack outputs into a target harness scope.
+- `generate-pack`: generate `.packs/<target>` packages and native marketplace metadata.
+- `release-pack`: prepare generated packages and marketplace metadata for local dogfood or publishing.
 - `add-harness`: help add a new harness adapter and compatibility matrix entry.
 
 The built-in `configport` skills should include:
 
-- `configure-pack`: answer pack-declared configuration questions and store profile/scope values.
-- `configure-tools`: manage selected packs, models, permissions, install scopes, and target-tool config files.
+- `configure-pack`: answer pack-declared configuration questions and store profile/scope values and overlays.
+- `configure-tools`: manage selected packs, models, permissions, install scopes, overlays, and target-tool config files.
+- `apply-pack`: apply or remove selected generated pack outputs in a target harness scope.
 
 Skills can:
 
@@ -557,7 +602,8 @@ Deterministic tool primitives should own:
 - Resolving target plans from contracts and tool-owned target references.
 - Mechanical rendering from target plans.
 - Drift checks.
-- Install and uninstall changes.
+- Generated package inventories and ownership metadata.
+- Configport apply, update, cleanup, and uninstall changes.
 - Static target checks.
 
 Target resolvers should own what becomes what for normal cases. For hard or ambiguous mappings, resolvers should surface ambiguity back to the driving skill instead of making the emitter infer semantics from payload or freeform prose.
@@ -647,11 +693,6 @@ type TargetValidator = {
   target: TargetId
   validate(files: GeneratedFile[]): ValidationResult
 }
-
-type Installer = {
-  target: TargetId
-  install(files: GeneratedFile[], scope: InstallScope): InstallResult
-}
 ```
 
 Emitters know target-specific facts:
@@ -671,6 +712,8 @@ Emitters should not become a complete model of every harness. The emitter should
 - Never decide accepted degradation; that belongs to resolver output and lockfile decisions.
 
 Skills are where migration intelligence lives.
+
+Configport appliers, not packport emitters, own installing or removing generated packages in global, repository-local, project, or named profile scopes. They consume packport-generated package inventories and harness references, merge local answers and overlays, preserve unmanaged target config, and record applied ownership for cleanup and drift checks.
 
 ## Harness References
 
@@ -697,7 +740,7 @@ Initial targets:
 
 Claude Code adapter means the Claude resolver plus emitter produce Claude-native plugin assets.
 
-OpenCode adapter means the OpenCode resolver plus emitter produce native OpenCode assets by default. OpenCode supports some Claude compatibility, but compatibility mode should be explicit. Do not emit both Claude-compatible and native OpenCode versions into the same target install scope.
+OpenCode adapter means the OpenCode resolver plus emitter produce native OpenCode assets by default. OpenCode supports some Claude compatibility, but compatibility mode should be explicit. Do not emit both Claude-compatible and native OpenCode versions into the same target package scope.
 
 Codex adapter means the Codex resolver plus emitter produce documented Codex surfaces such as skills, custom agents, MCP config, hooks/config where supported, and source commands as skills when needed.
 
@@ -725,11 +768,15 @@ Customization declarations are pack-owned. Customization values are configuratio
 
 The pack repo decides which variables exist, what they mean, and which safe defaults apply. The configuration tool stores and applies the actual user, machine, profile, and scope-specific answers.
 
+`configport` should provide a chezmoi-like overlay system for local customization without forking pack source. This matters when migration finds personal values scattered through a pack, such as a person's name, writing voice, local service endpoints, usernames, preferred models, or machine paths. The migration skill should help turn those repeated literals into pack-declared variables or overlay patches, but deterministic primitives should store and apply the resulting answers.
+
 V1 should support:
 
 - Pack-level declarations.
 - Local answers stored by `configport` profile/scope outside reusable payload.
 - Namespaced keys such as `commit.review_model` when a value is only meaningful to one asset.
+- Overlay files or patch records stored outside pack source and applied during `configport apply`.
+- Discovery reports that identify repeated personal literals and suggest declaration or overlay candidates during migration.
 
 Do not add scoped merging until repeated usage proves namespaced keys are insufficient. Avoid one global customization registry when the variable is only meaningful for one asset. `configport` can manage profiles and scopes without moving the variable definitions out of the pack.
 
@@ -744,18 +791,32 @@ Examples from ccconfigs might include:
 `packport` only knows how to:
 
 - Validate declared types.
-- Substitute declared placeholder values in generated outputs where the pack explicitly opts a payload or wrapper into substitution.
+- Validate declared placeholder and templating surfaces where the pack explicitly opts a payload or wrapper into substitution.
+- Render committed `.packs/` output using only portable pack-source defaults; it must not use profile, scope, machine, or user-local answers.
 - Refuse missing required values.
+- Report likely personal literals during migration without embedding ccconfigs-specific knowledge.
 
 `configport` knows how to:
 
 - Ask for declared values.
 - Store local answers for declared variables only.
 - Select packs per harness/profile/scope.
+- Store and apply overlays by pack, profile, scope, and target.
 - Apply user and machine answers into target-native config files.
+- Materialize local answers into installed/profile-specific output when a selected pack declares placeholders or overlays.
 - Keep secret references outside pack source and generated payloads.
 
 Secrets should be emitted as environment references, not literal secret values.
+
+Overlay rules:
+
+- Overlay state is not portable pack source.
+- Overlays must be inspectable text data, not opaque code.
+- Overlays may replace declared placeholders, add target config fragments, or patch installed/profile-materialized wrapper files when a target needs local details.
+- Overlays must not modify committed `.packs/` packages or native marketplace files; those remain packport-owned generated artifacts.
+- Overlays must not silently modify payload behavior that should live in pack source.
+- Skills may author or update overlays after explaining the implication to the user.
+- Deterministic apply/check primitives own idempotent application, cleanup, and drift detection.
 
 ## Configuration Management
 
@@ -773,8 +834,9 @@ The boundary should be explicit:
 
 - `packport` primitives discover and validate pack source.
 - `packport` resolver/emitter primitives generate target packages.
-- `packport` installer primitives apply generated pack output to harness-specific locations.
-- `configport` primitives manage selected packs, profiles, local answers, tool config files, and install scopes.
+- `packport` primitives expose generated package inventories, ownership metadata, and target package facts.
+- `configport` primitives manage selected packs, profiles, local answers, overlays, tool config files, and install scopes.
+- `configport` primitives apply and uninstall generated pack output in harness-specific locations.
 - Each tool's control skills orchestrate that tool's primitives and own the conversational workflow.
 
 `configport configure` can exist for automation, but the primary UX is a `configure-pack` or `configure-tools` control skill shipped by `configport`. `packport` may expose metadata that helps `configport`, but it should not grow into the configuration manager.
@@ -866,18 +928,40 @@ Harness hooks should invoke the packaged CLI or Bun entrypoint during developmen
 
 ## Generated Outputs
 
-Dogfood repositories such as `ccconfigs` may commit generated packages for installability and drift checks. Generic pack repositories should also support generated release artifacts without committing `dist/`.
+Dogfood repositories such as `ccconfigs` may commit generated packages for installability and drift checks. Generic pack repositories should also support committed or release-artifact generated packages without relying on `dist/`, because `dist/` is commonly ignored and treated as transient build output.
 
 Expected shape:
 
 ```text
-dist/
+.packs/
   claude/
+    essentials/
+    writing/
+    experimental/
   opencode/
+    essentials/
+    writing/
+    experimental/
   codex/
+    essentials/
+    writing/
+    experimental/
 ```
 
-Generated outputs must be marked as generated and checked for drift.
+Generated outputs must be marked as generated and checked for drift. Users should not hand-edit `.packs/` or generated native marketplace files; changes should come from pack source, configport overlays applied to installed/profile-materialized output, or deterministic generation primitives.
+
+Where a harness has a native marketplace location, `packport` should generate that metadata at the native path rather than inventing a second marketplace file:
+
+```text
+.claude-plugin/marketplace.json          # Claude Code marketplace metadata
+.agents/plugins/marketplace.json         # Codex marketplace metadata
+```
+
+For v1, marketplace entries should point at local `.packs/<target>/<pack>` plugin packages for dogfooding. Remote publication should be an extension of the same metadata model, not a different source format. OpenCode output is native generated package/config output in v1; add marketplace support only if OpenCode has a stable marketplace/plugin surface that requires it.
+
+Default plugin granularity is one plugin per source pack per target, plus separate control plugins for `packport-control` and `configport-control`. Aggregate bundle plugins are not v1 behavior.
+
+Native marketplace files are generated artifacts even though they live outside `.packs/`. They must be owned in `pack.lock.yaml`, regenerated by `packport`, and drift-checked the same way as `.packs/` package files.
 
 ## pack.lock.yaml And Provenance
 
@@ -889,19 +973,21 @@ V1 `pack.lock.yaml` should answer:
 
 - Which source packs were selected.
 - Which source asset IDs, optional contracts, and payload paths produced which generated files.
-- Which target harness and scope each file belongs to.
+- Which target harness package each generated file belongs to.
 - Which generated files are tool-owned and safe to update or remove.
-- Which customization profile was used, without storing secrets.
+- Which portable pack-source defaults were rendered, without storing configport profiles, local answers, or secrets.
 - Which tool version produced the output.
 - Which pack versions were rendered.
 - Which target-specific decision IDs were accepted for that generated output.
 - Which source hashes and output hashes were used for drift detection.
 
+Configport should keep separate applied-state provenance for profile, scope, selected packs, local answers, overlays, and installed target files. That state is not `pack.lock.yaml` and must not make committed `.packs/` output profile-specific.
+
 Possible shape:
 
 ```text
-pack.lock.yaml                    # machine-owned repo-level generation lock
-dist/claude/pack.lock.yaml        # optional only for standalone package provenance
+pack.lock.yaml                         # machine-owned repo-level generation lock
+.packs/claude/essentials/pack.lock.yaml # optional only for standalone package provenance
 ```
 
 The repo-level `pack.lock.yaml` supports incremental updates and drift checks. A target lockfile is only needed when a generated package is published or installed standalone and needs embedded provenance.
@@ -944,7 +1030,9 @@ The check flow should:
 - Render selected targets from resolved target plans.
 - Generate or update `pack.lock.yaml` and optional target package lockfiles.
 - Run static target validators.
-- Compare generated output and lockfiles against committed `dist/` when the repository commits generated packages.
+- Compare generated `.packs/` output, native marketplace metadata such as `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`, and lockfiles against the committed worktree when the repository commits generated packages.
+- Verify generated Claude and Codex marketplace entries exactly match the one-plugin-per-pack target plans and point at existing generated local package paths.
+- Verify committed `.packs/` packages and native marketplace files do not contain configport profile, scope, machine, or user-local answer materialization.
 - Verify pack versions propagate consistently to target metadata and `pack.lock.yaml`.
 - Run representative behavioral or golden tests.
 
@@ -960,11 +1048,11 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 - Ambiguous pack boundaries, distribution intent, or source-versus-configuration placement become user questions, not automatic generic-tool defaults.
 - Target-specific decisions are recorded as lockfile decisions; reports are generated views.
 
-### Install packport Control Skills
+### Generate packport Control Plugins
 
-- `packport` can generate a harness-native control plugin containing its built-in skills.
+- `packport` can generate a harness-native control plugin from the `packport-control` pack.
 - The control plugin is separate from user pack plugins.
-- Control skills call deterministic `packport` primitives; they do not reimplement parsing, resolving, emitting, or installing.
+- Control skills call deterministic primitives; they do not reimplement parsing, resolving, emitting, or configport apply/update/uninstall behavior.
 
 ### Create A New Pack
 
@@ -972,30 +1060,51 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 - `check` reports where native output will be degraded until needs, dependencies, or configuration are declared.
 - `PACK.md` stays pack-level and does not list assets discovered by convention.
 
-### Install Into Claude Code
+### Generate Claude Code Packages
 
-- The Claude resolver returns a target plan for the pack selection being generated and install scope.
+- The Claude resolver returns a target package plan for the pack selection being generated.
 - The Claude emitter serializes that plan without deciding command, permission, or degradation semantics.
+- Claude output includes one generated plugin per source pack plus control plugins, and `.claude-plugin/marketplace.json` has matching local entries.
 - The lockfile records ownership, hashes, the pack selection used for generation, and accepted decisions.
 
-### Install Into OpenCode
+### Generate OpenCode Packages
 
 - The OpenCode resolver chooses one inclusion path per logical asset and target scope.
 - Compatibility mode is explicit.
 - The target validator catches output path conflicts; the emitter only serializes the resolved plan.
 
-### Install Into Codex
+### Generate Codex Packages
 
 - The Codex resolver maps source commands to skills when Codex lacks command packaging.
 - Permission, sandbox, MCP, hook/config, and model choices come from resolver output.
+- Codex output includes one generated plugin per source pack plus control plugins, and `.agents/plugins/marketplace.json` has matching local entries.
 - Degradation stays out of payload and optional `ASSET.md` unless it is a true source-level constraint.
 
 ### Configure Customization
 
 - V1 supports pack-level declarations in pack source and local answers in `configport` state.
 - Asset-specific values use namespaced keys until scoped merging is proven necessary.
+- Repeated personal literals discovered during migration can become declared customization values or configport overlays.
 - Payload templating requires explicit opt-in; otherwise placeholder-looking text is literal.
-- Configuration state is managed by `configport` primitives and driven by `configport` control skills.
+- Configuration and overlay state is managed by `configport` primitives and driven by `configport` control skills.
+- Overlay apply/check is idempotent by profile, scope, pack, and target; cleanup removes only previously-owned overlay output.
+- Overlay drift is reported when generated or applied files differ from the recorded overlay state.
+- Overlay validation rejects silent payload behavior changes that should be represented in pack source.
+
+### Apply Configport Overlays
+
+- `configport apply` can apply selected packs with profile, scope, target, and pack overlays without editing pack source.
+- Overlay-owned generated files and target config fragments are recorded so removal and cleanup are deterministic.
+- `configport check` reports overlay drift, missing required values, and unmanaged conflicts before overwriting anything.
+- Overlay patches cannot silently change reusable payload behavior; behavior changes must be promoted back into pack source.
+
+### Apply Generated Packs With Configport
+
+- `configport apply` consumes packport-generated `.packs/<target>` inventories plus native marketplace metadata, not raw pack source reinterpretation.
+- `configport apply` materializes local answers and overlays only into installed/profile-specific harness output.
+- `configport update` preserves unmanaged harness config while refreshing owned generated files and applied overlays.
+- `configport uninstall` removes only files and config entries recorded as configport-owned applied state.
+- Configport applied-state provenance records selected packs, profile, scope, target, local answer references, overlay hashes, and installed files separately from `pack.lock.yaml`.
 
 ### Incremental Update
 
@@ -1005,7 +1114,7 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 
 ### Add A Harness
 
-- Adding a harness registers a target id, harness reference, resolver, emitter, validator, and installer as needed.
+- Adding a harness registers a target id, harness reference, resolver, emitter, validator, and configport applier as needed.
 - Existing payload files do not change.
 - Optional contract changes are required only for source-level constraints.
 
@@ -1013,7 +1122,8 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 
 - Current Claude-first assets are migration input, not final portable source shape.
 - Personal pack behavior remains pack source. Local machine values, secrets, selected-pack state, and install scopes move into `configport` state or pack-declared configuration values.
-- Generated packages can be committed for dogfooding, but lockfiles define ownership and drift.
+- Repeated personal values, such as names, endpoints, and local paths, should be identified during migration and moved into declarations or overlays.
+- Generated packages can be committed under `.packs/` for dogfooding, but lockfiles define ownership and drift.
 
 ## Migration Strategy
 
@@ -1028,14 +1138,14 @@ Plan:
 3. Add Bun/TS tool skeleton with quality gates.
 4. Add Markdown discovery, convention inference, and pack index.
 5. Add validation and `pack.lock.yaml`/drift skeleton.
-6. Add `packport` control skill source and a minimal control-plugin generator for at least one harness.
+6. Add `packport-control` pack source and a minimal control-plugin generator for at least one harness.
 7. Add `migrate-claude` skill prototype and migration scanner.
 8. Run scanner on `ccconfigs` and produce migrated source/report candidates without generated target output.
-9. Add `configport` package skeleton, configuration primitives, and configuration control skill flow.
-10. Add Claude resolver, emitter, validator, and installer using migrated source as adapter test input.
-11. Add OpenCode resolver, emitter, validator, and installer.
-12. Add Codex resolver, emitter, validator, and installer.
-13. Generate committed `dist/<harness>` packages.
+9. Add `configport` package skeleton, overlay-aware configuration primitives, and `configport-control` skill flow.
+10. Add Claude resolver, emitter, validator, and configport applier using migrated source as adapter test input.
+11. Add OpenCode resolver, emitter, validator, and configport applier.
+12. Add Codex resolver, emitter, validator, and configport applier.
+13. Generate committed `.packs/<harness>` packages and native Claude/Codex marketplace metadata.
 14. Beta test before merging to main.
 
 ## Review Workflow
@@ -1053,6 +1163,6 @@ Preferences:
 - Whether `ASSET.md` optional contracts are sufficient before introducing any additional source files.
 - Which prose-first patterns are common enough to promote into reusable snippets or light structure.
 - Whether a lightweight pack index plus `pack.lock.yaml` is sufficient for incremental updates and drift checks.
-- Whether generated `dist/` should be published directly from this repo or emitted as release artifacts later.
+- Which generated `.packs/` artifacts should be committed versus emitted as release artifacts for non-dogfood repositories.
 - What the minimum useful `migrate-claude` prototype should support first.
 - Whether any Codex plugin surfaces need deeper research before adapter implementation.
