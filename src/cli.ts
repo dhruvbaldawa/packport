@@ -7,6 +7,7 @@ import {
   formatClaudeMigrationScan,
   planClaudeMigration,
   scanClaudeMigrationSource,
+  writeClaudeMigration,
 } from "./core/claude-migration";
 import { checkPackRepository, formatDiagnostics } from "./core/check";
 import { generateClaudeControlPlugin } from "./core/control-plugin";
@@ -14,12 +15,13 @@ import { generateClaudeControlPlugin } from "./core/control-plugin";
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
-  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]...";
+  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
 
-type ParsedClaudeMigrationPlanArgs =
+type ParsedClaudeMigrationArgs =
   | {
+      readonly excludeAssets: readonly string[];
       readonly excludePlugins: readonly string[];
-      readonly rootPath: string;
+      readonly paths: readonly string[];
       readonly status: "ok";
     }
   | { readonly message: string; readonly status: "error" };
@@ -72,13 +74,21 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     }
 
     if (subcommand === "plan") {
-      const parsed = parseClaudeMigrationPlanArgs(args.slice(1));
+      const parsed = parseClaudeMigrationArgs(args.slice(1));
 
       if (parsed.status === "error") {
         return { exitCode: 1, stderr: `${parsed.message}\n${USAGE}` };
       }
 
-      const result = await planClaudeMigration(parsed.rootPath, {
+      if (parsed.paths.length > 1) {
+        return {
+          exitCode: 1,
+          stderr: `migrate-claude plan accepts at most one root path.\n${USAGE}`,
+        };
+      }
+
+      const result = await planClaudeMigration(parsed.paths[0] ?? process.cwd(), {
+        excludeAssets: parsed.excludeAssets,
         excludePlugins: parsed.excludePlugins,
       });
       const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
@@ -86,6 +96,48 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
       return {
         exitCode: ok ? 0 : 1,
         stdout: formatClaudeMigrationPlan(result),
+      };
+    }
+
+    if (subcommand === "write") {
+      const parsed = parseClaudeMigrationArgs(args.slice(1));
+
+      if (parsed.status === "error") {
+        return { exitCode: 1, stderr: `${parsed.message}\n${USAGE}` };
+      }
+
+      if (parsed.paths.length !== 2) {
+        return {
+          exitCode: 1,
+          stderr: `migrate-claude write requires source and output paths.\n${USAGE}`,
+        };
+      }
+
+      const [rootPath, outputPath] = parsed.paths;
+
+      if (rootPath === undefined || outputPath === undefined) {
+        return {
+          exitCode: 1,
+          stderr: `migrate-claude write requires source and output paths.\n${USAGE}`,
+        };
+      }
+
+      const result = await writeClaudeMigration(rootPath, outputPath, {
+        excludeAssets: parsed.excludeAssets,
+        excludePlugins: parsed.excludePlugins,
+      });
+      const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+      const diagnostics = result.diagnostics
+        .map(
+          (diagnostic) =>
+            `${diagnostic.severity.toUpperCase()} ${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`,
+        )
+        .join("\n");
+      const summary = `Wrote ${result.summary.files} Claude migration file(s) to ${result.outputPath}.`;
+
+      return {
+        exitCode: ok ? 0 : 1,
+        stdout: diagnostics ? `${summary}\n${diagnostics}` : summary,
       };
     }
 
@@ -102,10 +154,11 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
   };
 }
 
-/** Parses plan options that let skills apply user-approved migration decisions. */
-function parseClaudeMigrationPlanArgs(args: readonly string[]): ParsedClaudeMigrationPlanArgs {
+/** Parses migration options that let skills apply user-approved decisions. */
+function parseClaudeMigrationArgs(args: readonly string[]): ParsedClaudeMigrationArgs {
+  const excludeAssets: string[] = [];
   const excludePlugins: string[] = [];
-  let rootPath: string | undefined;
+  const paths: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -137,18 +190,37 @@ function parseClaudeMigrationPlanArgs(args: readonly string[]): ParsedClaudeMigr
       continue;
     }
 
+    if (arg === "--exclude-asset") {
+      const assetName = args[index + 1];
+
+      if (assetName === undefined || assetName === "" || assetName.startsWith("--")) {
+        return { message: "--exclude-asset requires an asset key.", status: "error" };
+      }
+
+      excludeAssets.push(assetName);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--exclude-asset=")) {
+      const assetName = arg.slice("--exclude-asset=".length);
+
+      if (assetName === "") {
+        return { message: "--exclude-asset requires an asset key.", status: "error" };
+      }
+
+      excludeAssets.push(assetName);
+      continue;
+    }
+
     if (arg.startsWith("--")) {
-      return { message: `Unknown migrate-claude plan option '${arg}'.`, status: "error" };
+      return { message: `Unknown migrate-claude option '${arg}'.`, status: "error" };
     }
 
-    if (rootPath !== undefined) {
-      return { message: "migrate-claude plan accepts at most one root path.", status: "error" };
-    }
-
-    rootPath = arg;
+    paths.push(arg);
   }
 
-  return { excludePlugins, rootPath: rootPath ?? process.cwd(), status: "ok" };
+  return { excludeAssets, excludePlugins, paths, status: "ok" };
 }
 
 if (import.meta.main) {
