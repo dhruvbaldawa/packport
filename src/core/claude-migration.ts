@@ -1,7 +1,7 @@
 // ABOUTME: Scans Claude Code marketplace and plugin source for migration candidates.
 // ABOUTME: Produces read-only reports before portable pack source generation exists.
 
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative } from "node:path";
 import type { Diagnostic } from "./types";
@@ -56,6 +56,7 @@ export type ClaudeMigrationScanResult = {
 
 export type ClaudeMigrationPlanFile = {
   readonly action: "copy" | "create";
+  readonly content?: string;
   readonly description: string;
   readonly sourcePath?: string;
   readonly targetPath: string;
@@ -89,7 +90,19 @@ export type ClaudeMigrationPlanResult = {
 };
 
 export type ClaudeMigrationPlanOptions = {
+  readonly excludeAssets?: readonly string[];
   readonly excludePlugins?: readonly string[];
+};
+
+export type ClaudeMigrationWriteResult = {
+  readonly diagnostics: readonly Diagnostic[];
+  readonly files: readonly string[];
+  readonly outputPath: string;
+  readonly plan: ClaudeMigrationPlanResult;
+  readonly rootPath: string;
+  readonly summary: {
+    readonly files: number;
+  };
 };
 
 type AssetConvention = {
@@ -170,7 +183,9 @@ export async function planClaudeMigration(
   const files: ClaudeMigrationPlanFile[] = [];
   const questions: ClaudeMigrationPlanQuestion[] = [];
   const plannedTargets = new Map<string, string>();
+  const excludedAssets = new Set(options.excludeAssets ?? []);
   const excludedPlugins = new Set(options.excludePlugins ?? []);
+  const usedExcludedAssets = new Set<string>();
   const usedExcludedPlugins = new Set<string>();
   let plannedAssets = 0;
   let plannedPlugins = 0;
@@ -181,7 +196,6 @@ export async function planClaudeMigration(
       continue;
     }
 
-    plannedAssets += plugin.assets.length;
     plannedPlugins += 1;
 
     const packPath = join("packs", toPortableDirectoryName(plugin.name));
@@ -191,6 +205,7 @@ export async function planClaudeMigration(
       plannedTargets,
       {
         action: "create",
+        content: createPackMarkdown(plugin),
         description: `Create portable PACK.md for ${plugin.name}@${plugin.version}.`,
         targetPath: slashPath(join(packPath, "PACK.md")),
       },
@@ -202,6 +217,15 @@ export async function planClaudeMigration(
     }
 
     for (const asset of plugin.assets) {
+      const excludedAsset = findAssetExclusion(asset, excludedAssets);
+
+      if (excludedAsset !== undefined) {
+        usedExcludedAssets.add(excludedAsset);
+        continue;
+      }
+
+      plannedAssets += 1;
+
       const assetPath = join(
         packPath,
         assetKindDirectory(asset.kind),
@@ -241,6 +265,17 @@ export async function planClaudeMigration(
     }
   }
 
+  for (const excludedAsset of [...excludedAssets].sort(compareStrings)) {
+    if (!usedExcludedAssets.has(excludedAsset)) {
+      diagnostics.push({
+        code: "unused-claude-asset-exclusion",
+        message: `No Claude asset matching ${excludedAsset} was found to exclude.`,
+        path: rootPath,
+        severity: "warning",
+      });
+    }
+  }
+
   for (const excludedPlugin of [...excludedPlugins].sort(compareStrings)) {
     if (!usedExcludedPlugins.has(excludedPlugin)) {
       diagnostics.push({
@@ -264,6 +299,60 @@ export async function planClaudeMigration(
       plugins: plannedPlugins,
       questions: questions.length,
     },
+  };
+}
+
+/** Writes portable pack source from an approved Claude migration plan. */
+export async function writeClaudeMigration(
+  rootPath: string,
+  outputPath: string,
+  options: ClaudeMigrationPlanOptions = {},
+): Promise<ClaudeMigrationWriteResult> {
+  const plan = await planClaudeMigration(rootPath, options);
+  const diagnostics: Diagnostic[] = [...plan.diagnostics];
+  const writtenFiles: string[] = [];
+
+  if (plan.questions.length > 0) {
+    diagnostics.push({
+      code: "unresolved-claude-migration-questions",
+      message: "Resolve or exclude Claude migration questions before writing portable source.",
+      path: rootPath,
+      severity: "error",
+    });
+  }
+
+  if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    for (const file of plan.files) {
+      const targetPath = join(outputPath, file.targetPath);
+      await mkdir(dirname(targetPath), { recursive: true });
+
+      if (file.action === "copy") {
+        if (file.sourcePath === undefined) {
+          diagnostics.push({
+            code: "missing-claude-copy-source",
+            message: `Migration copy plan for ${file.targetPath} is missing a source path.`,
+            path: targetPath,
+            severity: "error",
+          });
+          break;
+        }
+
+        await copyFile(file.sourcePath, targetPath);
+      } else {
+        await writeFile(targetPath, file.content ?? "", "utf8");
+      }
+
+      writtenFiles.push(targetPath);
+    }
+  }
+
+  return {
+    diagnostics,
+    files: writtenFiles,
+    outputPath,
+    plan,
+    rootPath,
+    summary: { files: writtenFiles.length },
   };
 }
 
@@ -628,6 +717,35 @@ type PlannedPayload = {
   readonly sourcePath: string;
   readonly targetPath: string;
 };
+
+/** Creates the minimal portable pack contract for one migrated Claude plugin. */
+function createPackMarkdown(plugin: ClaudeMigrationPlugin): string {
+  return [
+    `Name: ${plugin.name}`,
+    `Version: ${plugin.version}`,
+    `Description: ${plugin.description}`,
+    "",
+  ].join("\n");
+}
+
+/** Returns the matching user-provided asset exclusion key for an asset, if any. */
+function findAssetExclusion(
+  asset: ClaudeMigrationAsset,
+  excludedAssets: ReadonlySet<string>,
+): string | undefined {
+  for (const key of assetExclusionKeys(asset)) {
+    if (excludedAssets.has(key)) {
+      return key;
+    }
+  }
+
+  return undefined;
+}
+
+/** Provides stable asset exclusion keys for user-approved migration decisions. */
+function assetExclusionKeys(asset: ClaudeMigrationAsset): readonly string[] {
+  return [`${asset.pluginName}/${asset.name}`, `${asset.pluginName}/${asset.kind}/${asset.name}`];
+}
 
 /** Adds one planned file while detecting target path collisions deterministically. */
 function addPlanFile(

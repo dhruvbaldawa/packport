@@ -1,7 +1,7 @@
 // ABOUTME: Verifies read-only Claude marketplace and plugin migration scanning.
 // ABOUTME: Keeps migration classification explicit before source generation exists.
 
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -10,6 +10,7 @@ import {
   formatClaudeMigrationScan,
   planClaudeMigration,
   scanClaudeMigrationSource,
+  writeClaudeMigration,
 } from "../src/core/claude-migration";
 
 describe("scanClaudeMigrationSource", () => {
@@ -597,6 +598,30 @@ describe("planClaudeMigration", () => {
     ]);
   });
 
+  test("excludes user-approved harness-specific assets from portable source plans", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/commit.md": "# Commit\n",
+      "skills/claude-md-authoring/SKILL.md": "Use Claude Code to maintain CLAUDE.md.\n",
+    });
+
+    const result = await planClaudeMigration(rootPath, {
+      excludeAssets: ["essentials/claude-md-authoring"],
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/commands/commit/COMMAND.md",
+    ]);
+  });
+
   test("reports unused plugin exclusions", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
@@ -613,6 +638,28 @@ describe("planClaudeMigration", () => {
     expect(result.diagnostics).toContainEqual({
       code: "unused-claude-plugin-exclusion",
       message: "No Claude plugin named todoist was found to exclude.",
+      path: rootPath,
+      severity: "warning",
+    });
+    expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
+  });
+
+  test("reports unused asset exclusions", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/commit.md": "# Commit\n",
+    });
+
+    const result = await planClaudeMigration(rootPath, { excludeAssets: ["essentials/missing"] });
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unused-claude-asset-exclusion",
+      message: "No Claude asset matching essentials/missing was found to exclude.",
       path: rootPath,
       severity: "warning",
     });
@@ -801,6 +848,90 @@ describe("formatClaudeMigrationPlan", () => {
         "fact variable-reference TODOIST_API_TOKEN: References variable TODOIST_API_TOKEN.",
       ].join("\n"),
     );
+  });
+});
+
+describe("writeClaudeMigration", () => {
+  test("writes approved portable pack source", async () => {
+    const rootPath = await createTempRepository();
+    const outputPath = await createTempRepository("packport-claude-output-");
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/commit.md": "# Commit\n",
+      "skills/debugging/SKILL.md": "# Debugging\n",
+      "skills/debugging/reference/examples.md": "# Examples\n",
+    });
+
+    const result = await writeClaudeMigration(rootPath, outputPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ files: 4 });
+    expect(await readFile(join(outputPath, "packs/essentials/PACK.md"), "utf8")).toBe(
+      `Name: essentials
+Version: 1.0.0
+Description: Essential workflows
+`,
+    );
+    expect(
+      await readFile(join(outputPath, "packs/essentials/commands/commit/COMMAND.md"), "utf8"),
+    ).toBe("# Commit\n");
+    expect(
+      await readFile(
+        join(outputPath, "packs/essentials/skills/debugging/reference/examples.md"),
+        "utf8",
+      ),
+    ).toBe("# Examples\n");
+  });
+
+  test("does not write when migration questions remain", async () => {
+    const rootPath = await createTempRepository();
+    const outputPath = await createTempRepository("packport-claude-output-");
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+      "commands/search.md": "Use $TODOIST_API_TOKEN.\n",
+    });
+
+    const result = await writeClaudeMigration(rootPath, outputPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unresolved-claude-migration-questions",
+      message: "Resolve or exclude Claude migration questions before writing portable source.",
+      path: rootPath,
+      severity: "error",
+    });
+    expect(result.summary).toEqual({ files: 0 });
+    await expect(lstat(join(outputPath, "packs/todoist/PACK.md"))).rejects.toThrow();
+  });
+
+  test("does not write when migration planning has errors", async () => {
+    const rootPath = await createTempRepository();
+    const outputPath = await createTempRepository("packport-claude-output-");
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/foo/bar.md": "# Nested\n",
+      "commands/foo-bar.md": "# Flat\n",
+    });
+
+    const result = await writeClaudeMigration(rootPath, outputPath);
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "migration-target-collision",
+    );
+    expect(result.files).toEqual([]);
+    expect(result.summary).toEqual({ files: 0 });
+    await expect(lstat(join(outputPath, "packs/essentials/PACK.md"))).rejects.toThrow();
   });
 });
 

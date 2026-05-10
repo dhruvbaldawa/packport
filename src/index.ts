@@ -9,6 +9,7 @@ export {
   formatClaudeMigrationScan,
   planClaudeMigration,
   scanClaudeMigrationSource,
+  writeClaudeMigration,
 } from "./core/claude-migration";
 export { checkPackRepository, formatDiagnostics } from "./core/check";
 export {
@@ -40,6 +41,7 @@ export type {
   ClaudeMigrationPlanResult,
   ClaudeMigrationPlugin,
   ClaudeMigrationScanResult,
+  ClaudeMigrationWriteResult,
 } from "./core/claude-migration";
 export type { CheckResult } from "./core/check";
 export type { ControlSkill, GenerateControlPluginResult } from "./core/control-plugin";
