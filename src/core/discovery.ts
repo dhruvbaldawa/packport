@@ -4,7 +4,14 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { parseMarkdownContract } from "./markdown";
-import type { AssetIndex, AssetKind, Diagnostic, DiscoveryResult, PackIndex } from "./types";
+import type {
+  AssetIndex,
+  AssetKind,
+  Diagnostic,
+  DiscoveryResult,
+  MarkdownFieldValue,
+  PackIndex,
+} from "./types";
 
 type AssetConvention = {
   readonly directoryName: string;
@@ -73,13 +80,13 @@ async function discoverPack(
 
   return {
     assets,
-    description: document.keys.Description ?? "",
+    description: stringField(document.keys.description) ?? "",
     directoryPath,
     id: packId,
-    name: document.keys.Name ?? packId,
+    name: stringField(document.keys.name) ?? packId,
     packFilePath,
     sections: document.sections,
-    version: document.keys.Version ?? "",
+    version: stringField(document.keys.version) ?? "",
   };
 }
 
@@ -158,7 +165,7 @@ async function discoverAsset(
 /** Resolves convention payloads plus optional ASSET.md overrides into relative paths. */
 function resolvePayloadRelativePaths(
   convention: AssetConvention,
-  contract: { readonly keys: Record<string, string> } | undefined,
+  contract: { readonly keys: Record<string, MarkdownFieldValue> } | undefined,
   contractPath: string,
   diagnostics: Diagnostic[],
 ): string[] {
@@ -166,15 +173,15 @@ function resolvePayloadRelativePaths(
     return [convention.payloadFile];
   }
 
-  const payload = contract.keys.Payload;
-  const payloads = contract.keys.Payloads;
-  const hasPayload = Object.hasOwn(contract.keys, "Payload");
-  const hasPayloads = Object.hasOwn(contract.keys, "Payloads");
+  const payload = contract.keys.payload;
+  const payloads = contract.keys.payloads;
+  const hasPayload = Object.hasOwn(contract.keys, "payload");
+  const hasPayloads = Object.hasOwn(contract.keys, "payloads");
 
   if (hasPayload && hasPayloads) {
     diagnostics.push({
       code: "conflicting-payload-keys",
-      message: "ASSET.md must not declare both Payload and Payloads.",
+      message: "ASSET.md must not declare both payload and payloads.",
       path: contractPath,
       severity: "error",
     });
@@ -182,14 +189,14 @@ function resolvePayloadRelativePaths(
 
   if (hasPayloads && payloads !== undefined) {
     return validatePayloadEntries(
-      payloads.split(","),
+      typeof payloads === "string" ? payloads.split(",") : [...payloads],
       convention.payloadFile,
       contractPath,
       diagnostics,
     );
   }
 
-  if (hasPayload && payload !== undefined) {
+  if (hasPayload && typeof payload === "string") {
     return validatePayloadEntries([payload], convention.payloadFile, contractPath, diagnostics);
   }
 
@@ -208,7 +215,7 @@ function validatePayloadEntries(
   if (normalizedEntries.length === 0) {
     diagnostics.push({
       code: "missing-payload-declaration",
-      message: "Payload or Payloads must declare at least one relative file path.",
+      message: "payload or payloads must declare at least one relative file path.",
       path: contractPath,
       severity: "error",
     });
@@ -231,7 +238,7 @@ function isValidRelativePayload(
   if (isAbsolute(entry) || isWindowsAbsolutePath(entry) || entry.split(/[\\/]+/).includes("..")) {
     diagnostics.push({
       code: "invalid-payload-path",
-      message: `Payload path '${entry}' must be relative to the asset directory.`,
+      message: `payload path '${entry}' must be relative to the asset directory.`,
       path: contractPath,
       severity: "error",
     });
@@ -244,6 +251,11 @@ function isValidRelativePayload(
 /** Checks Windows absolute payload paths even when packport runs on POSIX. */
 function isWindowsAbsolutePath(entry: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(entry) || entry.startsWith("\\\\");
+}
+
+/** Returns a field only when the validated frontmatter value is scalar. */
+function stringField(value: MarkdownFieldValue | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 /** Returns sorted child directory names, treating a missing parent as empty. */

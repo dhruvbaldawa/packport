@@ -12,9 +12,11 @@ describe("generateOpenCodeOutput", () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/agents/reviewer/AGENT.md": [
         "---",
@@ -33,7 +35,10 @@ Description: Core workflows.
         "",
         "Task: $ARGS",
       ].join("\n"),
-      "packs/essentials/skills/debugging/ASSET.md": "Payload: SKILL.md\n",
+      "packs/essentials/skills/debugging/ASSET.md": `---
+payload: SKILL.md
+---
+`,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
       "packs/essentials/skills/debugging/reference/examples.md": "# Examples\n",
     });
@@ -82,9 +87,11 @@ Description: Core workflows.
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
@@ -102,11 +109,16 @@ Description: Core workflows.
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
-      "packs/essentials/skills/debugging/ASSET.md": "Payload: README.md\n",
+      "packs/essentials/skills/debugging/ASSET.md": `---
+payload: README.md
+---
+`,
       "packs/essentials/skills/debugging/README.md": "# Debugging\n",
       "packs/essentials/skills/debugging/reference/examples.md": "# Examples\n",
     });
@@ -146,9 +158,11 @@ Description: Core workflows.
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
@@ -168,9 +182,11 @@ Description: Core workflows.
     const outputPath = await createTempRepository("packport-opencode-output-");
     const outsidePath = await createTempRepository("packport-opencode-outside-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
@@ -191,9 +207,11 @@ Description: Core workflows.
     const outputPath = await createTempRepository("packport-opencode-output-");
     const outsidePath = await createTempRepository("packport-opencode-outside-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
@@ -212,14 +230,18 @@ Description: Core workflows.
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");
     await writeFileTree(rootPath, {
-      "packs/a/PACK.md": `Name: A
-Version: 1.0.0
-Description: First pack.
+      "packs/a/PACK.md": `---
+name: A
+version: 1.0.0
+description: First pack.
+---
 `,
       "packs/a/commands/plan/COMMAND.md": "# First\n",
-      "packs/b/PACK.md": `Name: B
-Version: 1.0.0
-Description: Second pack.
+      "packs/b/PACK.md": `---
+name: B
+version: 1.0.0
+description: Second pack.
+---
 `,
       "packs/b/commands/plan/COMMAND.md": "# Second\n",
     });
@@ -238,9 +260,11 @@ Description: Second pack.
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/Bad_Name/SKILL.md": "# Bad\n",
     });
@@ -260,9 +284,11 @@ Description: Core workflows.
     const outputPath = await createTempRepository("packport-opencode-output-");
     const longName = "a".repeat(65);
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       [`packs/essentials/skills/${longName}/SKILL.md`]: "# Bad\n",
     });

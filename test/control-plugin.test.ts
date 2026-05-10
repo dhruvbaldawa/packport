@@ -336,7 +336,7 @@ async function createControlSkillSource(
   await mkdir(join(sourcePath, CONTROL_PACK_DIRECTORY), { recursive: true });
   await writeFile(
     join(sourcePath, CONTROL_PACK_DIRECTORY, "PACK.md"),
-    "Name: packport-control\nVersion: 0.0.0\nDescription: Control workflows.\n",
+    "---\nname: packport-control\nversion: 0.0.0\ndescription: Control workflows.\n---\n",
   );
 
   for (const [name, contents] of Object.entries(skills)) {

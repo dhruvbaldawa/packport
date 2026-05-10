@@ -11,9 +11,11 @@ describe("discoverPackRepository", () => {
   test("discovers packs and convention-based assets", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/commit/COMMAND.md": "# Commit\n\nCommit changes.\n",
       "packs/essentials/commands/commit/ASSET.md": `# Packaging Notes
@@ -55,9 +57,11 @@ Description: Core workflows.
   test("reports missing payload files", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
     });
     await mkdir(join(rootPath, "packs/essentials/commands/commit"), { recursive: true });
@@ -78,9 +82,11 @@ Description: Core workflows.
   test("does not parse payload files as contracts", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/commit/COMMAND.md": `Owner: nobody
 
@@ -101,12 +107,17 @@ This is payload prose, not packport metadata.
   test("uses ASSET.md payload overrides", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/commit/COMMIT.md": "# Commit\n\nCommit changes.\n",
-      "packs/essentials/commands/commit/ASSET.md": "Payload: COMMIT.md\n",
+      "packs/essentials/commands/commit/ASSET.md": `---
+payload: COMMIT.md
+---
+`,
     });
 
     const result = await discoverPackRepository(rootPath);
@@ -120,13 +131,20 @@ Description: Core workflows.
   test("uses multiple ASSET.md payload overrides", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/hooks/notify/HOOK.md": "# Notify\n\nSend notifications.\n",
       "packs/essentials/hooks/notify/notify.ts": "export {};\n",
-      "packs/essentials/hooks/notify/ASSET.md": "Payloads: HOOK.md, notify.ts\n",
+      "packs/essentials/hooks/notify/ASSET.md": `---
+payloads:
+  - HOOK.md
+  - notify.ts
+---
+`,
     });
 
     const result = await discoverPackRepository(rootPath);
@@ -141,9 +159,11 @@ Description: Core workflows.
   test("parses empty ASSET.md files as present contracts", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/commit/COMMAND.md": "# Commit\n\nCommit changes.\n",
       "packs/essentials/commands/commit/ASSET.md": "",
@@ -162,9 +182,11 @@ Description: Core workflows.
   test("rejects payload directories", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
     });
     await mkdir(join(rootPath, "packs/essentials/commands/commit/COMMAND.md"), {
@@ -184,41 +206,51 @@ Description: Core workflows.
     });
   });
 
-  test("rejects blank Payloads declarations", async () => {
+  test("rejects blank payloads declarations", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
-      "packs/essentials/commands/commit/ASSET.md": "Payloads: ,\n",
+      "packs/essentials/commands/commit/ASSET.md": `---
+payloads: []
+---
+`,
     });
 
     const result = await discoverPackRepository(rootPath);
 
     expect(result.diagnostics).toContainEqual({
       code: "missing-payload-declaration",
-      message: "Payload or Payloads must declare at least one relative file path.",
+      message: "payload or payloads must declare at least one relative file path.",
       path: join(rootPath, "packs/essentials/commands/commit/ASSET.md"),
       severity: "error",
     });
   });
 
-  test("rejects blank Payload declarations", async () => {
+  test("rejects blank payload declarations", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
-      "packs/essentials/commands/commit/ASSET.md": "Payload:   \n",
+      "packs/essentials/commands/commit/ASSET.md": `---
+payload: ""
+---
+`,
     });
 
     const result = await discoverPackRepository(rootPath);
 
     expect(result.diagnostics).toContainEqual({
       code: "missing-payload-declaration",
-      message: "Payload or Payloads must declare at least one relative file path.",
+      message: "payload or payloads must declare at least one relative file path.",
       path: join(rootPath, "packs/essentials/commands/commit/ASSET.md"),
       severity: "error",
     });
@@ -227,18 +259,23 @@ Description: Core workflows.
   test("rejects payload override paths outside the asset directory", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
-      "packs/essentials/commands/commit/ASSET.md": "Payload: ../COMMAND.md\n",
+      "packs/essentials/commands/commit/ASSET.md": `---
+payload: ../COMMAND.md
+---
+`,
     });
 
     const result = await discoverPackRepository(rootPath);
 
     expect(result.diagnostics).toContainEqual({
       code: "invalid-payload-path",
-      message: "Payload path '../COMMAND.md' must be relative to the asset directory.",
+      message: "payload path '../COMMAND.md' must be relative to the asset directory.",
       path: join(rootPath, "packs/essentials/commands/commit/ASSET.md"),
       severity: "error",
     });
@@ -247,11 +284,16 @@ Description: Core workflows.
   test("rejects Windows absolute payload override paths", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
-      "packs/essentials/commands/commit/ASSET.md": "Payload: C:\\Users\\dhruv\\COMMAND.md\n",
+      "packs/essentials/commands/commit/ASSET.md": `---
+payload: C:\\Users\\dhruv\\COMMAND.md
+---
+`,
     });
 
     const result = await discoverPackRepository(rootPath);
@@ -259,7 +301,7 @@ Description: Core workflows.
     expect(result.diagnostics).toContainEqual({
       code: "invalid-payload-path",
       message:
-        "Payload path 'C:\\Users\\dhruv\\COMMAND.md' must be relative to the asset directory.",
+        "payload path 'C:\\Users\\dhruv\\COMMAND.md' must be relative to the asset directory.",
       path: join(rootPath, "packs/essentials/commands/commit/ASSET.md"),
       severity: "error",
     });
@@ -268,32 +310,41 @@ Description: Core workflows.
   test("rejects POSIX absolute payload override paths", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
-      "packs/essentials/commands/commit/ASSET.md": "Payload: /tmp/COMMAND.md\n",
+      "packs/essentials/commands/commit/ASSET.md": `---
+payload: /tmp/COMMAND.md
+---
+`,
     });
 
     const result = await discoverPackRepository(rootPath);
 
     expect(result.diagnostics).toContainEqual({
       code: "invalid-payload-path",
-      message: "Payload path '/tmp/COMMAND.md' must be relative to the asset directory.",
+      message: "payload path '/tmp/COMMAND.md' must be relative to the asset directory.",
       path: join(rootPath, "packs/essentials/commands/commit/ASSET.md"),
       severity: "error",
     });
   });
 
-  test("rejects conflicting Payload and Payloads declarations", async () => {
+  test("rejects conflicting payload and payloads declarations", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
-      "packs/essentials/commands/commit/ASSET.md": `Payload:
-Payloads:
+      "packs/essentials/commands/commit/ASSET.md": `---
+payload:
+payloads:
+---
 `,
     });
 
@@ -301,7 +352,7 @@ Payloads:
 
     expect(result.diagnostics).toContainEqual({
       code: "conflicting-payload-keys",
-      message: "ASSET.md must not declare both Payload and Payloads.",
+      message: "ASSET.md must not declare both payload and payloads.",
       path: join(rootPath, "packs/essentials/commands/commit/ASSET.md"),
       severity: "error",
     });

@@ -412,9 +412,11 @@ async function createValidPackRepository(): Promise<string> {
   await mkdir(join(rootPath, "packs/essentials/commands/commit"), { recursive: true });
   await writeFile(
     join(rootPath, "packs/essentials/PACK.md"),
-    `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+    `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
   );
   await writeFile(join(rootPath, "packs/essentials/commands/commit/COMMAND.md"), "# Commit\n");

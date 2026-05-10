@@ -1,0 +1,43 @@
+assets:
+  - id: configport-control/skill/apply-pack
+    kind: skill
+    payloads:
+      - hash: e0788c9b0d7ba5aaca4e4067e740194a81a5e1f469b0bf25eb9c7af3f842656a
+        path: packs/configport-control/skills/apply-pack/SKILL.md
+  - id: configport-control/skill/configure-pack
+    kind: skill
+    payloads:
+      - hash: 30d896601b657a42021c7a47fc5e84c30cf00ebea77cb1d2629f0cf7530c7b33
+        path: packs/configport-control/skills/configure-pack/SKILL.md
+  - id: configport-control/skill/configure-tools
+    kind: skill
+    payloads:
+      - hash: a0be59b0e4d4b3586ab788c884f3eb8c9ed58564e44ecf493d8a9cc6fdcc7d09
+        path: packs/configport-control/skills/configure-tools/SKILL.md
+  - id: packport-control/skill/check-pack
+    kind: skill
+    payloads:
+      - hash: 2d7afa845edfd947b5f4b66964bbce292825ab6530a1ac131558abe9c79336db
+        path: packs/packport-control/skills/check-pack/SKILL.md
+  - id: packport-control/skill/migrate-claude
+    kind: skill
+    payloads:
+      - hash: 24b19b706073b69f871ed02ced87cecbb6e6e83ac66aebf321c6ac70cd01a38c
+        path: packs/packport-control/skills/migrate-claude/SKILL.md
+decisions:
+  []
+lockfileVersion: 1
+outputs:
+  []
+packs:
+  - hash: e05d97d93f0c683295d1ecf44b94e072c6e8e57f1c832dfcc19146115e3ad9bb
+    id: configport-control
+    path: packs/configport-control/PACK.md
+    version: 0.0.0
+  - hash: 11312f5f24321678181ca5b576478691faf4bb45103d133afb64e067b8683adc
+    id: packport-control
+    path: packs/packport-control/PACK.md
+    version: 0.0.0
+tool:
+  name: packport
+  version: 0.0.0

@@ -5,12 +5,14 @@ import { describe, expect, test } from "bun:test";
 import { parseMarkdownContract } from "../src/core/markdown";
 
 describe("parseMarkdownContract", () => {
-  test("parses required PACK.md keys and named sections", () => {
+  test("parses required PACK.md frontmatter fields and named sections", () => {
     const document = parseMarkdownContract(
       "packs/essentials/PACK.md",
-      `Name: Essentials
-Version: 1.2.3
-Description: Core agent workflows.
+      `---
+name: Essentials
+version: 1.2.3
+description: Core agent workflows.
+---
 
 # Essentials
 
@@ -23,86 +25,137 @@ Description: Core agent workflows.
 
     expect(document.diagnostics).toEqual([]);
     expect(document.keys).toEqual({
-      Description: "Core agent workflows.",
-      Name: "Essentials",
-      Version: "1.2.3",
+      description: "Core agent workflows.",
+      name: "Essentials",
+      version: "1.2.3",
     });
     expect(document.sections).toEqual([{ body: "- git", name: "Dependencies" }]);
   });
 
-  test("reports missing required PACK.md keys", () => {
-    const document = parseMarkdownContract("packs/essentials/PACK.md", "Name: Essentials", "pack");
+  test("reports missing required PACK.md frontmatter fields", () => {
+    const document = parseMarkdownContract(
+      "packs/essentials/PACK.md",
+      `---
+name: Essentials
+---
+`,
+      "pack",
+    );
 
     expect(document.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
-      "missing-pack-key",
-      "missing-pack-key",
+      "missing-pack-field",
+      "missing-pack-field",
     ]);
   });
 
-  test("rejects unknown structured keys before the first heading", () => {
+  test("rejects unknown structured frontmatter fields", () => {
     const document = parseMarkdownContract(
       "packs/essentials/PACK.md",
-      `Name: Essentials
-Version: 1.2.3
-Description: Core agent workflows.
-Owner: Dhruv
+      `---
+name: Essentials
+version: 1.2.3
+description: Core agent workflows.
+owner: Dhruv
+---
 `,
       "pack",
     );
 
     expect(document.diagnostics).toContainEqual({
-      code: "unknown-key",
-      message: "Unknown pack key 'Owner'.",
+      code: "unknown-field",
+      message: "Unknown pack frontmatter field 'owner'.",
       path: "packs/essentials/PACK.md",
       severity: "error",
     });
   });
 
-  test("rejects duplicate structured keys", () => {
+  test("rejects duplicate structured frontmatter fields", () => {
     const document = parseMarkdownContract(
       "packs/essentials/PACK.md",
-      `Name: Essentials
-Name: Duplicate
-Version: 1.2.3
-Description: Core agent workflows.
+      `---
+name: Essentials
+name: Duplicate
+version: 1.2.3
+description: Core agent workflows.
+---
 `,
       "pack",
     );
 
+    expect(
+      document.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === "invalid-frontmatter" &&
+          diagnostic.message.includes("Map keys must be unique"),
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects legacy structured fields outside frontmatter", () => {
+    const document = parseMarkdownContract(
+      "packs/essentials/PACK.md",
+      "Name: Essentials\n",
+      "pack",
+    );
+
     expect(document.diagnostics).toContainEqual({
-      code: "duplicate-key",
-      message: "Duplicate pack key 'Name'.",
+      code: "legacy-field-location",
+      message: "PACK.md field 'Name' must be declared in YAML frontmatter.",
       path: "packs/essentials/PACK.md",
       severity: "error",
     });
   });
 
-  test("validates Templated values", () => {
+  test("rejects lowercase structured fields outside frontmatter", () => {
     const document = parseMarkdownContract(
       "packs/essentials/commands/commit/ASSET.md",
-      "Templated: maybe\n",
+      "payload: README.md\n",
+      "asset",
+    );
+
+    expect(document.diagnostics).toContainEqual({
+      code: "legacy-field-location",
+      message: "ASSET.md field 'payload' must be declared in YAML frontmatter.",
+      path: "packs/essentials/commands/commit/ASSET.md",
+      severity: "error",
+    });
+  });
+
+  test("validates templated values", () => {
+    const document = parseMarkdownContract(
+      "packs/essentials/commands/commit/ASSET.md",
+      `---
+templated: maybe
+---
+`,
       "asset",
     );
 
     expect(document.diagnostics).toEqual([
       {
         code: "invalid-templated-value",
-        message: "Templated must be either 'true' or 'false'.",
+        message: "templated must be either true or false.",
         path: "packs/essentials/commands/commit/ASSET.md",
         severity: "error",
       },
     ]);
   });
 
-  test("accepts boolean Templated values", () => {
+  test("accepts boolean templated values", () => {
     const trueDocument = parseMarkdownContract(
       "packs/essentials/commands/commit/ASSET.md",
-      "Templated: true\n",
+      `---
+templated: true
+---
+`,
       "asset",
     );
     const falseDocument = parseMarkdownContract(
       "packs/essentials/commands/commit/ASSET.md",
-      "Templated: false\n",
+      `---
+templated: false
+---
+`,
       "asset",
     );
 

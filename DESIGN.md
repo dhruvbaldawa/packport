@@ -272,7 +272,7 @@ Rules:
 - Target-native frontmatter already required by a payload format is allowed, but it is treated as payload syntax, not as the portable contract.
 - Templating is off by default. A placeholder-looking string such as `{{user_name}}` is literal text unless pack source explicitly opts that payload into templating.
 - The lockfile records interpreted conventions and optional asset contracts that affect generation.
-- Unknown structured contract keys should fail validation unless explicitly namespaced as experimental.
+- Unknown structured contract fields should fail validation unless explicitly namespaced as experimental.
 - Freeform contract prose is allowed only in named sections such as `Needs`, `Dependencies`, `Configuration`, `Source Constraints`, `Notes`, and `Experimental:<name>`.
 - Pack-level metadata belongs in pack-level source, usually `PACK.md`, only when it truly applies to the whole pack.
 
@@ -321,13 +321,13 @@ Contract prose should be limited to packaging intent, dependencies, capability n
 
 V1 should use the smallest parser surface that can support deterministic generation:
 
-- Top-of-file `Key: Value` pairs before the first heading.
+- Top-of-file YAML frontmatter for structured `PACK.md` and `ASSET.md` fields.
 - Named Markdown sections such as `Needs`, `Dependencies`, `Configuration`, `Source Constraints`, `Notes`, and `Experimental:<name>`.
 - Bullets under named sections preserved as prose unless a repeated pattern is promoted later.
-- Unknown structured keys fail validation.
+- Unknown structured frontmatter fields fail validation.
 - Unknown prose headings warn unless they are namespaced as `Experimental:<name>`.
-- `PACK.md` required keys: `Name`, `Version`, `Description`.
-- `ASSET.md` has no required keys when conventions infer identity, kind, and payload path.
+- `PACK.md` required frontmatter fields: `name`, `version`, `description`.
+- `ASSET.md` has no required frontmatter fields when conventions infer identity, kind, and payload path.
 
 ## Why Parse PACK.md And ASSET.md
 
@@ -340,7 +340,7 @@ The parser is needed to:
 - Discover optional asset needs, dependencies, customization declarations, and source-level constraints.
 - Resolve target plans from stable facts instead of freeform payload text.
 - Produce `pack.lock.yaml` with stable source IDs, hashes, ownership, and accepted decisions.
-- Fail fast on unknown structured keys while preserving named prose sections for humans and skills.
+- Fail fast on unknown structured frontmatter fields while preserving named prose sections for humans and skills.
 
 The parser should not:
 

@@ -7,7 +7,9 @@ export type DiagnosticSeverity = "error" | "warning";
 
 export type ContractKind = "asset" | "pack";
 
-export type MarkdownKeyValues = Record<string, string>;
+export type MarkdownFieldValue = string | readonly string[];
+
+export type MarkdownKeyValues = Record<string, MarkdownFieldValue>;
 
 export type SectionName =
   | "Configuration"

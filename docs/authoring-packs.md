@@ -15,15 +15,17 @@ packs/
         SKILL.md
 ```
 
-`PACK.md` must start with these keys before the first heading:
+`PACK.md` must start with YAML frontmatter containing these fields:
 
 ```markdown
-Name: Essentials
-Version: 0.1.0
-Description: Core workflows for repository maintenance.
+---
+name: Essentials
+version: 0.1.0
+description: Core workflows for repository maintenance.
+---
 ```
 
-Those are the only structured keys currently accepted in `PACK.md`.
+Those are the only structured fields currently accepted in `PACK.md`.
 
 ## Asset Directories
 
@@ -44,20 +46,24 @@ Support files inside a skill directory are copied by the OpenCode and Codex gene
 
 Add `ASSET.md` inside an asset directory only for non-obvious packaging facts.
 
-Accepted keys are:
+Accepted frontmatter fields are:
 
 ```markdown
-Payload: README.md
-Payloads: SKILL.md, helper.ts
-Templated: true
+---
+payload: README.md
+payloads:
+  - SKILL.md
+  - helper.ts
+templated: true
+---
 ```
 
 Rules:
 
-- use either `Payload` or `Payloads`, not both.
+- use either `payload` or `payloads`, not both.
 - payload paths must be relative to the asset directory.
 - payload paths must not contain `..` or absolute paths.
-- `Templated` must be `true` or `false`.
+- `templated` must be `true` or `false`.
 
 ## Supported Sections
 

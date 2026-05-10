@@ -1,11 +1,18 @@
 // ABOUTME: Parses packport's tiny Markdown control-plane grammar.
-// ABOUTME: Preserves prose sections while validating structured keys and headings.
+// ABOUTME: Preserves prose sections while validating frontmatter fields and headings.
 
-import type { ContractKind, Diagnostic, MarkdownDocument, MarkdownSection } from "./types";
+import { parseDocument } from "yaml";
+import type {
+  ContractKind,
+  Diagnostic,
+  MarkdownDocument,
+  MarkdownFieldValue,
+  MarkdownSection,
+} from "./types";
 
-const PACK_KEYS = new Set(["Description", "Name", "Version"]);
-const ASSET_KEYS = new Set(["Payload", "Payloads", "Templated"]);
-const PACK_REQUIRED_KEYS = ["Name", "Version", "Description"] as const;
+const PACK_FIELDS = new Set(["description", "name", "version"]);
+const ASSET_FIELDS = new Set(["payload", "payloads", "templated"]);
+const PACK_REQUIRED_FIELDS = ["name", "version", "description"] as const;
 const SECTION_NAMES = new Set([
   "Configuration",
   "Dependencies",
@@ -14,95 +21,25 @@ const SECTION_NAMES = new Set([
   "Source Constraints",
 ]);
 
-/** Parses PACK.md or ASSET.md into structured keys, prose sections, and diagnostics. */
+/** Parses PACK.md or ASSET.md into frontmatter fields, prose sections, and diagnostics. */
 export function parseMarkdownContract(
   path: string,
   text: string,
   kind: ContractKind,
 ): MarkdownDocument {
-  const lines = text.replaceAll("\r\n", "\n").split("\n");
   const diagnostics: Diagnostic[] = [];
-  const keys: Record<string, string> = {};
-  let sectionStart = lines.findIndex((line) => line.startsWith("#"));
+  const { body, frontmatter } = splitFrontmatter(path, text, diagnostics);
+  const keys =
+    frontmatter === undefined ? {} : parseFrontmatterFields(path, frontmatter, kind, diagnostics);
 
-  if (sectionStart === -1) {
-    sectionStart = lines.length;
-  }
-
-  const allowedKeys = kind === "pack" ? PACK_KEYS : ASSET_KEYS;
-  const keyLines = lines.slice(0, sectionStart);
-
-  for (const [index, line] of keyLines.entries()) {
-    const trimmed = line.trim();
-
-    if (trimmed === "") {
-      continue;
-    }
-
-    const match = /^(?<key>[A-Z][A-Za-z ]*):\s*(?<value>.*)$/.exec(trimmed);
-
-    if (!match?.groups) {
-      diagnostics.push({
-        code: "invalid-key-line",
-        message: `Expected a Key: Value pair before the first heading on line ${index + 1}.`,
-        path,
-        severity: "error",
-      });
-      continue;
-    }
-
-    const key = match.groups.key;
-    const value = match.groups.value;
-
-    if (key === undefined || value === undefined) {
-      diagnostics.push({
-        code: "invalid-key-line",
-        message: `Expected a complete Key: Value pair before the first heading on line ${index + 1}.`,
-        path,
-        severity: "error",
-      });
-      continue;
-    }
-
-    if (!allowedKeys.has(key)) {
-      diagnostics.push({
-        code: "unknown-key",
-        message: `Unknown ${kind} key '${key}'.`,
-        path,
-        severity: "error",
-      });
-      continue;
-    }
-
-    if (keys[key] !== undefined) {
-      diagnostics.push({
-        code: "duplicate-key",
-        message: `Duplicate ${kind} key '${key}'.`,
-        path,
-        severity: "error",
-      });
-      continue;
-    }
-
-    const trimmedValue = value.trim();
-    keys[key] = trimmedValue;
-
-    if (kind === "asset" && key === "Templated" && !["false", "true"].includes(trimmedValue)) {
-      diagnostics.push({
-        code: "invalid-templated-value",
-        message: "Templated must be either 'true' or 'false'.",
-        path,
-        severity: "error",
-      });
-    }
-  }
+  validateBodyFrontmatterBoundary(path, body, kind, diagnostics);
 
   if (kind === "pack") {
-    for (const key of PACK_REQUIRED_KEYS) {
-      if (!keys[key]) {
+    for (const field of PACK_REQUIRED_FIELDS) {
+      if (!keys[field]) {
         diagnostics.push({
-          code: "missing-pack-key",
-          message: `PACK.md is missing required key '${key}'.`,
+          code: "missing-pack-field",
+          message: `PACK.md frontmatter is missing required field '${field}'.`,
           path,
           severity: "error",
         });
@@ -110,9 +47,186 @@ export function parseMarkdownContract(
     }
   }
 
-  const sections = parseSections(path, lines.slice(sectionStart), diagnostics);
+  const sections = parseSections(path, body.split("\n"), diagnostics);
 
   return { diagnostics, keys, path, sections };
+}
+
+/** Splits an optional top-of-file YAML frontmatter block from the Markdown body. */
+function splitFrontmatter(
+  path: string,
+  text: string,
+  diagnostics: Diagnostic[],
+): { readonly body: string; readonly frontmatter?: string } {
+  const normalized = text.replaceAll("\r\n", "\n");
+
+  if (!normalized.startsWith("---\n")) {
+    return { body: normalized };
+  }
+
+  const lines = normalized.split("\n");
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+
+  if (closingIndex === -1) {
+    diagnostics.push({
+      code: "invalid-frontmatter",
+      message: "YAML frontmatter must be closed with a --- line.",
+      path,
+      severity: "error",
+    });
+    return { body: normalized };
+  }
+
+  return {
+    body: lines.slice(closingIndex + 1).join("\n"),
+    frontmatter: lines.slice(1, closingIndex).join("\n"),
+  };
+}
+
+/** Parses and validates the YAML frontmatter fields for one contract document. */
+function parseFrontmatterFields(
+  path: string,
+  frontmatter: string,
+  kind: ContractKind,
+  diagnostics: Diagnostic[],
+): Record<string, MarkdownFieldValue> {
+  const document = parseDocument(frontmatter);
+  const keys: Record<string, MarkdownFieldValue> = {};
+
+  for (const error of document.errors) {
+    diagnostics.push({
+      code: "invalid-frontmatter",
+      message: error.message,
+      path,
+      severity: "error",
+    });
+  }
+
+  const parsed = document.toJSON();
+
+  if (parsed === null) {
+    return keys;
+  }
+
+  if (!isRecord(parsed)) {
+    diagnostics.push({
+      code: "invalid-frontmatter",
+      message: "YAML frontmatter must contain a mapping.",
+      path,
+      severity: "error",
+    });
+    return keys;
+  }
+
+  const allowedFields = kind === "pack" ? PACK_FIELDS : ASSET_FIELDS;
+
+  for (const [field, value] of Object.entries(parsed)) {
+    if (!allowedFields.has(field)) {
+      diagnostics.push({
+        code: "unknown-field",
+        message: `Unknown ${kind} frontmatter field '${field}'.`,
+        path,
+        severity: "error",
+      });
+      continue;
+    }
+
+    const normalized = normalizeFrontmatterValue(path, kind, field, value, diagnostics);
+
+    if (normalized !== undefined) {
+      keys[field] = normalized;
+    }
+  }
+
+  return keys;
+}
+
+/** Converts supported frontmatter scalar and sequence values into the parser's key map. */
+function normalizeFrontmatterValue(
+  path: string,
+  kind: ContractKind,
+  field: string,
+  value: unknown,
+  diagnostics: Diagnostic[],
+): MarkdownFieldValue | undefined {
+  if (Array.isArray(value)) {
+    if (kind !== "asset" || field !== "payloads") {
+      diagnostics.push(invalidFieldValue(path, field, "must be a scalar value."));
+      return undefined;
+    }
+
+    const entries: string[] = [];
+
+    for (const entry of value) {
+      if (!isScalarFrontmatterValue(entry)) {
+        diagnostics.push(invalidFieldValue(path, field, "must contain only scalar values."));
+        return undefined;
+      }
+
+      entries.push(String(entry).trim());
+    }
+
+    return entries;
+  }
+
+  if (!isScalarFrontmatterValue(value)) {
+    diagnostics.push(invalidFieldValue(path, field, "must be a scalar value."));
+    return undefined;
+  }
+
+  const normalizedValue = value === null ? "" : String(value).trim();
+
+  if (kind === "asset" && field === "templated" && !["false", "true"].includes(normalizedValue)) {
+    diagnostics.push({
+      code: "invalid-templated-value",
+      message: "templated must be either true or false.",
+      path,
+      severity: "error",
+    });
+  }
+
+  return normalizedValue;
+}
+
+/** Reports likely legacy top-of-file fields that should now live in frontmatter. */
+function validateBodyFrontmatterBoundary(
+  path: string,
+  body: string,
+  kind: ContractKind,
+  diagnostics: Diagnostic[],
+): void {
+  const lines = body.split("\n");
+  const sectionStart = lines.findIndex((line) => line.startsWith("#"));
+  const prefixLines = sectionStart === -1 ? lines : lines.slice(0, sectionStart);
+  const allowedFields = kind === "pack" ? PACK_FIELDS : ASSET_FIELDS;
+  const bodyFields = new Set([
+    ...allowedFields,
+    ...[...allowedFields].map((field) => titleCaseField(field)),
+  ]);
+
+  for (const line of prefixLines) {
+    const match = /^(?<field>[A-Za-z][A-Za-z ]*):/.exec(line.trim());
+    const field = match?.groups?.field;
+
+    if (field === undefined || !bodyFields.has(field)) {
+      continue;
+    }
+
+    diagnostics.push({
+      code: "legacy-field-location",
+      message: `${kind === "pack" ? "PACK.md" : "ASSET.md"} field '${field}' must be declared in YAML frontmatter.`,
+      path,
+      severity: "error",
+    });
+  }
+}
+
+/** Builds the legacy Title Case spelling for frontmatter-field diagnostics. */
+function titleCaseField(field: string): string {
+  return field
+    .split(" ")
+    .map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
 }
 
 /** Parses Markdown headings into named sections and records warnings for unknown headings. */
@@ -172,4 +286,29 @@ function validateSectionName(path: string, name: string, diagnostics: Diagnostic
     path,
     severity: "warning",
   });
+}
+
+/** Returns true for frontmatter values that packport can safely coerce to strings. */
+function isScalarFrontmatterValue(value: unknown): value is boolean | number | string | null {
+  return (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "number" ||
+    typeof value === "string"
+  );
+}
+
+/** Builds a consistent diagnostic for unsupported field value shapes. */
+function invalidFieldValue(path: string, field: string, message: string): Diagnostic {
+  return {
+    code: "invalid-field-value",
+    message: `Frontmatter field '${field}' ${message}`,
+    path,
+    severity: "error",
+  };
+}
+
+/** Narrows parsed YAML values to plain records. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

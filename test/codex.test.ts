@@ -12,9 +12,11 @@ describe("generateCodexOutput", () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     const outputPath = join(rootPath, ".packs/codex");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.2.3
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.2.3
+description: Core workflows.
+---
 `,
       "packs/essentials/agents/reviewer/AGENT.md": "Review changes.\n",
       "packs/essentials/commands/plan/COMMAND.md": [
@@ -26,7 +28,10 @@ Description: Core workflows.
         "Task: $ARGS",
       ].join("\n"),
       "packs/essentials/commands/plan/examples.md": "# Examples\n",
-      "packs/essentials/skills/debugging/ASSET.md": "Payload: SKILL.md\n",
+      "packs/essentials/skills/debugging/ASSET.md": `---
+payload: SKILL.md
+---
+`,
       "packs/essentials/skills/debugging/SKILL.md": [
         "---",
         "description: Debug project failures",
@@ -122,9 +127,11 @@ Description: Core workflows.
   test("preserves existing marketplace metadata and replaces generated entries", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
       [CODEX_MARKETPLACE_FILE]: JSON.stringify({
@@ -195,9 +202,11 @@ Description: Core workflows.
   test("replaces unsafe existing marketplace entries for regenerated packs", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
       [CODEX_MARKETPLACE_FILE]: JSON.stringify({
@@ -244,9 +253,11 @@ Description: Core workflows.
   test("reports unsupported hooks as warnings while writing supported Codex output", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/hooks/notify/HOOK.md": "# Notify\n",
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
@@ -280,9 +291,11 @@ Description: Core workflows.
   test("rejects invalid Codex plugin and skill names without writing partial output", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     await writeFileTree(rootPath, {
-      "packs/Bad_Name/PACK.md": `Name: Bad
-Version: 1.0.0
-Description: Bad pack.
+      "packs/Bad_Name/PACK.md": `---
+name: Bad
+version: 1.0.0
+description: Bad pack.
+---
 `,
       "packs/Bad_Name/skills/Bad_Skill/SKILL.md": "# Bad\n",
     });
@@ -300,9 +313,11 @@ Description: Bad pack.
   test("rejects invalid Codex skill names without writing partial output", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/Bad_Skill/SKILL.md": "# Bad\n",
     });
@@ -320,9 +335,11 @@ Description: Core workflows.
   test("reports command and skill target collisions without writing partial output", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan command\n",
       "packs/essentials/skills/plan/SKILL.md": "# Plan skill\n",
@@ -344,9 +361,11 @@ Description: Core workflows.
     const rootPath = await createTempRepository("packport-codex-source-");
     const outputPath = join(rootPath, "plugins/codex");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
     });
@@ -367,9 +386,11 @@ Description: Core workflows.
     const rootPath = await createTempRepository("packport-codex-source-");
     await writeFileTree(rootPath, {
       [CODEX_MARKETPLACE_FILE]: "{\n",
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
     });
@@ -404,9 +425,11 @@ Description: Core workflows.
           },
         ],
       }),
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
     });
@@ -441,9 +464,11 @@ Description: Core workflows.
           },
         ],
       }),
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
     });
@@ -464,9 +489,11 @@ Description: Core workflows.
     const rootPath = await createTempRepository("packport-codex-source-");
     const outsidePath = await createTempRepository("packport-codex-outside-");
     await writeFileTree(rootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
     });
@@ -484,9 +511,11 @@ Description: Core workflows.
     const targetRootPath = await createTempRepository("packport-codex-target-");
     const targetOutsidePath = await createTempRepository("packport-codex-target-outside-");
     await writeFileTree(targetRootPath, {
-      "packs/essentials/PACK.md": `Name: Essentials
-Version: 1.0.0
-Description: Core workflows.
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
 `,
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
     });

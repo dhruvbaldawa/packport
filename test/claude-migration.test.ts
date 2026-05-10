@@ -871,9 +871,11 @@ describe("writeClaudeMigration", () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.summary).toEqual({ files: 4 });
     expect(await readFile(join(outputPath, "packs/essentials/PACK.md"), "utf8")).toBe(
-      `Name: essentials
-Version: 1.0.0
-Description: Essential workflows
+      `---
+name: essentials
+version: 1.0.0
+description: Essential workflows
+---
 `,
     );
     expect(

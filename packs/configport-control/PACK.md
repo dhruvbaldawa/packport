@@ -1,6 +1,8 @@
-Name: configport-control
-Version: 0.0.0
-Description: Configport control workflows for local agent-pack configuration.
+---
+name: configport-control
+version: 0.0.0
+description: Configport control workflows for local agent-pack configuration.
+---
 
 # Configport Control
 

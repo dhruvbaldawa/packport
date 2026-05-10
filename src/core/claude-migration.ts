@@ -721,11 +721,22 @@ type PlannedPayload = {
 /** Creates the minimal portable pack contract for one migrated Claude plugin. */
 function createPackMarkdown(plugin: ClaudeMigrationPlugin): string {
   return [
-    `Name: ${plugin.name}`,
-    `Version: ${plugin.version}`,
-    `Description: ${plugin.description}`,
+    "---",
+    `name: ${serializeFrontmatterValue(plugin.name)}`,
+    `version: ${serializeFrontmatterValue(plugin.version)}`,
+    `description: ${serializeFrontmatterValue(plugin.description)}`,
+    "---",
     "",
   ].join("\n");
+}
+
+/** Quotes generated frontmatter scalars when plain YAML syntax would be ambiguous. */
+function serializeFrontmatterValue(value: string): string {
+  if (/^[A-Za-z0-9_./ -]+$/.test(value) && value.trim() === value) {
+    return value;
+  }
+
+  return JSON.stringify(value);
 }
 
 /** Returns the matching user-provided asset exclusion key for an asset, if any. */
