@@ -220,6 +220,31 @@ Run inside Claude Code.
     });
   });
 
+  test("does not infer variable facts from non-config explicit variables", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Planning workflows",
+        name: "planning",
+        version: "1.0.0",
+      }),
+      "commands/plan.md": "Use $ARGS, $" + "{ARGUMENTS}, $TASK_ID, and $SEARCH_SCRIPT.\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins[0]?.assets[0]).toMatchObject({
+      classification: "pack-candidate",
+      decisionRequired: false,
+      facts: [],
+      kind: "command",
+      name: "plan",
+      path: "commands/plan.md",
+      pluginName: "planning",
+    });
+  });
+
   test("deduplicates repeated structural facts", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {

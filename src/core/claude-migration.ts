@@ -125,6 +125,15 @@ const SCRIPT_REFERENCE_PATTERN =
   /(?:^|[\s`'"(=])((?:\.\/)?scripts\/[A-Za-z0-9._/-]+\.(?:cjs|js|mjs|sh|ts))(?=$|[\s`'"),;:]|\.(?=$|[\s`'")]))/g;
 const BRACED_VARIABLE_PATTERN = /\$\{([A-Z][A-Z0-9_]*)\}/g;
 const PLAIN_VARIABLE_PATTERN = /\$([A-Z][A-Z0-9_]*)\b/g;
+const CONFIG_VARIABLE_KEYWORDS = [
+  "CONFIG",
+  "CREDENTIAL",
+  "ENV",
+  "KEY",
+  "PASSWORD",
+  "SECRET",
+  "TOKEN",
+];
 
 /** Scans a Claude marketplace root or a single Claude plugin directory. */
 export async function scanClaudeMigrationSource(
@@ -798,14 +807,23 @@ function collectFacts(value: string): ClaudeMigrationFact[] {
   }
 
   for (const variable of matchPatternValues(BRACED_VARIABLE_PATTERN, value)) {
-    addFact("variable-reference", variable, `References variable ${variable}.`);
+    if (isKnownConfigVariable(variable)) {
+      addFact("variable-reference", variable, `References variable ${variable}.`);
+    }
   }
 
   for (const variable of matchPatternValues(PLAIN_VARIABLE_PATTERN, value)) {
-    addFact("variable-reference", variable, `References variable ${variable}.`);
+    if (isKnownConfigVariable(variable)) {
+      addFact("variable-reference", variable, `References variable ${variable}.`);
+    }
   }
 
   return facts.sort(compareFacts);
+}
+
+/** Checks whether an explicit variable name is likely external configuration state. */
+function isKnownConfigVariable(value: string): boolean {
+  return CONFIG_VARIABLE_KEYWORDS.some((keyword) => value.split("_").includes(keyword));
 }
 
 /** Returns capture-group values from a global structural fact pattern. */

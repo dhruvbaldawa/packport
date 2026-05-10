@@ -17,7 +17,7 @@ Use this skill to inspect Claude Code marketplace or plugin source before writin
 4. If working from the packport source tree before a binary is installed, use `bun src/cli.ts migrate-claude scan <path>` and `bun src/cli.ts migrate-claude plan <path>`.
 5. Summarize discovered plugins, planned files, target collisions, structural facts, and decision questions.
 6. Treat `pack-candidate` assets as normal pack source candidates, including personal or private packs.
-7. Treat known structural facts such as explicit `$VARIABLE` / `${VARIABLE}` references, `config-path-reference`, and `script-reference` as evidence to reason from, not as automatic classifications.
+7. Treat known structural facts such as explicit config/security variable references, `config-path-reference`, and `script-reference` as evidence to reason from, not as automatic classifications.
 8. Call out `harness-specific`, `unsupported`, `unclear`, and fact-bearing assets as questions, not decisions.
 9. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
 
