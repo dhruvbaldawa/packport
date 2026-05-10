@@ -90,6 +90,18 @@ implicit variable discovery are not supported. Refs should be declared in `PACK.
 using the supported prose sections below. Installed target files should render refs into
 target-specific prose or config; unresolved config refs block configport apply.
 
+The built-in v1 alias map starts intentionally small:
+
+- `{{tool.fs.read}}`
+- `{{tool.fs.write}}`
+- `{{tool.git.read}}`
+- `{{tool.git.write}}`
+- `{{tool.shell.git}}`
+- `{{mcp.todoist}}`
+
+Unknown `tool.*` and `mcp.*` aliases fail validation until a resolver or harness reference knows how
+to explain or materialize them for Claude Code, OpenCode, and Codex.
+
 ## Supported Sections
 
 `PACK.md` and `ASSET.md` can include prose sections after headings. Known section names are:

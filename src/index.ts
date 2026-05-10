@@ -40,6 +40,12 @@ export {
 } from "./core/control-plugin";
 export { discoverPackRepository } from "./core/discovery";
 export {
+  KNOWN_PORTABLE_MCP_REFS,
+  KNOWN_PORTABLE_TOOL_REFS,
+  renderPortableRefsForTarget,
+  validateKnownPortableRefs,
+} from "./core/harness-refs";
+export {
   createPackLock,
   detectLockDrift,
   PACK_LOCK_FILE,
@@ -83,6 +89,7 @@ export type {
   GenerateClaudeControlMarketplaceResult,
   GenerateControlPluginResult,
 } from "./core/control-plugin";
+export type { HarnessTarget, PortableRefRenderResult } from "./core/harness-refs";
 export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";
 export type { GenerateOpenCodeResult } from "./core/opencode";
 export type {

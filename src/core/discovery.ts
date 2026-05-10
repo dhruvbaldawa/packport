@@ -3,6 +3,7 @@
 
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { validateKnownPortableRefs } from "./harness-refs";
 import { parseMarkdownContract } from "./markdown";
 import { portableRefKey, scanPortableRefs } from "./refs";
 import type {
@@ -195,6 +196,7 @@ function collectDeclaredRefs(
   for (const section of sections) {
     const result = scanPortableRefs(path, section.body);
     diagnostics.push(...result.diagnostics);
+    diagnostics.push(...validateKnownPortableRefs(result.refs));
     refs.push(...result.refs);
   }
 
@@ -211,6 +213,7 @@ async function collectPayloadRefs(path: string, diagnostics: Diagnostic[]): Prom
 
   const result = scanPortableRefs(path, text);
   diagnostics.push(...result.diagnostics);
+  diagnostics.push(...validateKnownPortableRefs(result.refs));
   return [...result.refs];
 }
 

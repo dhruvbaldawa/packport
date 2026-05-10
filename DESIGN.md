@@ -957,8 +957,19 @@ Rules:
 - All payloads are ref-aware by default.
 - Unknown namespaces fail validation.
 - Undeclared refs fail validation.
+- Unknown `tool.*` and `mcp.*` aliases fail validation until the harness reference layer knows how to render or configure them.
 - Unresolved `config.*` refs block configport apply.
 - No loops, filters, conditionals, expressions, or implicit variable discovery.
+
+The v1 built-in alias map should stay small and obvious while the harness-as-shell workflow proves
+which names are worth standardizing. Initial aliases:
+
+- `{{tool.fs.read}}`
+- `{{tool.fs.write}}`
+- `{{tool.git.read}}`
+- `{{tool.git.write}}`
+- `{{tool.shell.git}}`
+- `{{mcp.todoist}}`
 
 Avoid template-heavy implementation.
 

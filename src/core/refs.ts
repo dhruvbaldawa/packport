@@ -36,7 +36,7 @@ export function scanPortableRefs(
       continue;
     }
 
-    const ref = parsePortableRef(path, raw, body, diagnostics);
+    const ref = parsePortableRef(path, raw, body, start, diagnostics);
 
     if (ref) {
       refs.push(ref);
@@ -58,6 +58,7 @@ function parsePortableRef(
   path: string,
   raw: string,
   body: string,
+  start: number,
   diagnostics: Diagnostic[],
 ): PortableRef | undefined {
   if (body.trim() !== body || body.includes("|") || /\s/.test(body)) {
@@ -88,7 +89,14 @@ function parsePortableRef(
     return undefined;
   }
 
-  return { name, namespace: namespace as PortableRefNamespace, path, raw };
+  return {
+    end: start + raw.length,
+    name,
+    namespace: namespace as PortableRefNamespace,
+    path,
+    raw,
+    start,
+  };
 }
 
 type TextRange = {

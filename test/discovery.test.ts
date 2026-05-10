@@ -147,6 +147,59 @@ description: Core workflows.
     });
   });
 
+  test("reports unknown portable tool aliases in control-plane declarations", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+
+## Needs
+
+- {{tool.shell.rsync}} for remote sync.
+`,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md": "# Repo Workflow\n",
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unknown-portable-ref-alias",
+      message: "Portable tool ref '{{tool.shell.rsync}}' is not in the built-in alias map.",
+      path: join(rootPath, "packs/essentials/PACK.md"),
+      severity: "error",
+    });
+  });
+
+  test("reports unknown portable tool aliases in payload files", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+
+## Needs
+
+- {{tool.shell.rsync}} for remote sync.
+`,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
+        "Sync remote context with {{tool.shell.rsync}}.\n",
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unknown-portable-ref-alias",
+      message: "Portable tool ref '{{tool.shell.rsync}}' is not in the built-in alias map.",
+      path: join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      severity: "error",
+    });
+  });
+
   test("does not treat Claude command argument placeholders as portable refs", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {

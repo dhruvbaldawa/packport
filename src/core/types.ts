@@ -14,10 +14,12 @@ export type MarkdownKeyValues = Record<string, MarkdownFieldValue>;
 export type PortableRefNamespace = "config" | "mcp" | "tool";
 
 export type PortableRef = {
+  readonly end: number;
   readonly name: string;
   readonly namespace: PortableRefNamespace;
   readonly path: string;
   readonly raw: string;
+  readonly start: number;
 };
 
 export type SectionName =
