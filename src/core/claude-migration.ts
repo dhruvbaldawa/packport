@@ -560,10 +560,8 @@ function classifyAsset(
 
   return {
     classification: "pack-candidate",
-    decisionRequired: true,
-    reasons: [
-      "Claude asset uses a supported pack convention; user must confirm migration placement.",
-    ],
+    decisionRequired: false,
+    reasons: ["Claude asset uses a supported pack convention."],
   };
 }
 

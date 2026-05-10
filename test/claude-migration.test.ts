@@ -76,9 +76,9 @@ name: debugging
       "pack-candidate",
       "pack-candidate",
     ]);
-    expect(result.plugins[0]?.assets.every((asset) => asset.decisionRequired)).toBe(true);
+    expect(result.plugins[0]?.assets.every((asset) => asset.decisionRequired)).toBe(false);
     expect(result.plugins[1]?.assets[0]?.classification).toBe("pack-candidate");
-    expect(result.plugins[1]?.assets[0]?.decisionRequired).toBe(true);
+    expect(result.plugins[1]?.assets[0]?.decisionRequired).toBe(false);
   });
 
   test("scans a standalone Claude plugin directory", async () => {
@@ -135,7 +135,7 @@ Run inside Claude Code.
     });
   });
 
-  test("keeps personal pack names as pack candidates that still require review", async () => {
+  test("keeps personal pack names as pack candidates", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
       ".claude-plugin/plugin.json": JSON.stringify({
@@ -151,7 +151,7 @@ Run inside Claude Code.
     expect(result.diagnostics).toEqual([]);
     expect(result.plugins[0]?.assets[0]).toMatchObject({
       classification: "pack-candidate",
-      decisionRequired: true,
+      decisionRequired: false,
       kind: "skill",
       name: "writing-like-me",
       path: "skills/writing-like-me/SKILL.md",
@@ -338,7 +338,7 @@ describe("planClaudeMigration", () => {
     const result = await planClaudeMigration(rootPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.summary).toEqual({ assets: 4, files: 6, plugins: 1, questions: 4 });
+    expect(result.summary).toEqual({ assets: 4, files: 6, plugins: 1, questions: 0 });
     expect(result.files.map((file) => file.targetPath)).toEqual([
       "packs/essentials/PACK.md",
       "packs/essentials/agents/research-depth/AGENT.md",
@@ -351,12 +351,7 @@ describe("planClaudeMigration", () => {
       action: "copy",
       sourcePath: join(rootPath, "agents/research/depth.md"),
     });
-    expect(result.questions.map((question) => question.asset.name)).toEqual([
-      "research/depth",
-      "commit",
-      "frontend/component",
-      "debugging",
-    ]);
+    expect(result.questions).toEqual([]);
   });
 
   test("reports target collisions after flattening nested Claude names", async () => {
@@ -499,11 +494,29 @@ describe("formatClaudeMigrationPlan", () => {
         "Plugins: 1",
         "Assets: 1",
         "Files: 2",
-        "Questions: 1",
+        "Questions: 0",
         "create packs/essentials/PACK.md",
         `copy ${join(rootPath, "commands/commit.md")} -> packs/essentials/commands/commit/COMMAND.md`,
-        "question pack-candidate essentials/commit: Confirm this convention-supported Claude asset should become portable pack source.",
       ].join("\n"),
+    );
+  });
+
+  test("formats remaining dry-run migration questions", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+      "commands/search.md": "Set TODOIST_API_TOKEN as an environment variable before use.\n",
+    });
+
+    const report = formatClaudeMigrationPlan(await planClaudeMigration(rootPath));
+
+    expect(report).toContain("Questions: 1");
+    expect(report).toContain(
+      "question configuration-candidate todoist/search: Decide which parts are pack source versus configport-managed values.",
     );
   });
 });
