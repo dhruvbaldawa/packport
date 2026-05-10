@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  CONTROL_PACK_DIRECTORY,
   CONTROL_PLUGIN_NAME,
   CONTROL_PLUGIN_STATE_FILE,
   discoverControlSkills,
@@ -42,10 +43,16 @@ describe("control plugin generation", () => {
       version: "1.2.3",
     });
     expect(await readFile(join(outputPath, "skills/check-pack/SKILL.md"), "utf8")).toBe(
-      await readFile(join(projectRootPath(), "skills/check-pack/SKILL.md"), "utf8"),
+      await readFile(
+        join(projectRootPath(), CONTROL_PACK_DIRECTORY, "skills/check-pack/SKILL.md"),
+        "utf8",
+      ),
     );
     expect(await readFile(join(outputPath, "skills/migrate-claude/SKILL.md"), "utf8")).toBe(
-      await readFile(join(projectRootPath(), "skills/migrate-claude/SKILL.md"), "utf8"),
+      await readFile(
+        join(projectRootPath(), CONTROL_PACK_DIRECTORY, "skills/migrate-claude/SKILL.md"),
+        "utf8",
+      ),
     );
     expect(JSON.parse(await readFile(join(outputPath, CONTROL_PLUGIN_STATE_FILE), "utf8"))).toEqual(
       {
@@ -61,15 +68,14 @@ describe("control plugin generation", () => {
   });
 
   test("removes previously generated stale Claude skill files", async () => {
-    const sourcePath = await mkdtemp(join(tmpdir(), "packport-control-source-"));
+    const sourcePath = await createControlSkillSource({
+      "check-pack": "# Check\n",
+      stale: "# Stale\n",
+    });
     const outputPath = join(await mkdtemp(join(tmpdir(), "packport-control-")), "packport");
-    await mkdir(join(sourcePath, "skills/check-pack"), { recursive: true });
-    await mkdir(join(sourcePath, "skills/stale"), { recursive: true });
-    await writeFile(join(sourcePath, "skills/check-pack/SKILL.md"), "# Check\n");
-    await writeFile(join(sourcePath, "skills/stale/SKILL.md"), "# Stale\n");
 
     await generateClaudeControlPlugin(sourcePath, outputPath, "1.2.3");
-    await rm(join(sourcePath, "skills/stale"), { recursive: true });
+    await rm(join(sourcePath, CONTROL_PACK_DIRECTORY, "skills/stale"), { recursive: true });
 
     await generateClaudeControlPlugin(sourcePath, outputPath, "1.2.3");
 
@@ -77,16 +83,25 @@ describe("control plugin generation", () => {
   });
 
   test("refuses to generate into the source root or source skills tree", async () => {
-    const sourcePath = await mkdtemp(join(tmpdir(), "packport-control-source-"));
-    await mkdir(join(sourcePath, "skills/check-pack"), { recursive: true });
-    await writeFile(join(sourcePath, "skills/check-pack/SKILL.md"), "# Check\n");
+    const sourcePath = await createControlSkillSource();
 
     await expect(generateClaudeControlPlugin(sourcePath, sourcePath, "1.2.3")).rejects.toThrow(
       "Control plugin output path must not be the packport source root.",
     );
     await expect(
-      generateClaudeControlPlugin(sourcePath, join(sourcePath, "skills/generated"), "1.2.3"),
-    ).rejects.toThrow("Control plugin output path must not be inside the source skills directory.");
+      generateClaudeControlPlugin(
+        sourcePath,
+        join(sourcePath, CONTROL_PACK_DIRECTORY, "skills/generated"),
+        "1.2.3",
+      ),
+    ).rejects.toThrow("Control plugin output path must not be inside the source control pack.");
+    await expect(
+      generateClaudeControlPlugin(
+        sourcePath,
+        join(sourcePath, CONTROL_PACK_DIRECTORY, "generated"),
+        "1.2.3",
+      ),
+    ).rejects.toThrow("Control plugin output path must not be inside the source control pack.");
   });
 
   test("refuses to remove generated files through symlinked output paths", async () => {
@@ -143,9 +158,12 @@ describe("control plugin generation", () => {
     const sourcePath = await mkdtemp(join(tmpdir(), "packport-control-source-"));
     const outputPath = join(await mkdtemp(join(tmpdir(), "packport-control-")), "packport");
     const outsidePath = await mkdtemp(join(tmpdir(), "packport-control-outside-"));
-    await mkdir(join(sourcePath, "skills/check-pack"), { recursive: true });
+    await mkdir(join(sourcePath, CONTROL_PACK_DIRECTORY, "skills/check-pack"), { recursive: true });
     await writeFile(join(outsidePath, "SKILL.md"), "# Outside\n");
-    await symlink(join(outsidePath, "SKILL.md"), join(sourcePath, "skills/check-pack/SKILL.md"));
+    await symlink(
+      join(outsidePath, "SKILL.md"),
+      join(sourcePath, CONTROL_PACK_DIRECTORY, "skills/check-pack/SKILL.md"),
+    );
 
     await expect(generateClaudeControlPlugin(sourcePath, outputPath, "1.2.3")).rejects.toThrow(
       "Generated path must not contain symlinks:",
@@ -159,10 +177,20 @@ function projectRootPath(): string {
 }
 
 /** Creates a temporary source tree with one control skill. */
-async function createControlSkillSource(): Promise<string> {
+async function createControlSkillSource(
+  skills: Readonly<Record<string, string>> = { "check-pack": "# Check\n" },
+): Promise<string> {
   const sourcePath = await mkdtemp(join(tmpdir(), "packport-control-source-"));
-  await mkdir(join(sourcePath, "skills/check-pack"), { recursive: true });
-  await writeFile(join(sourcePath, "skills/check-pack/SKILL.md"), "# Check\n");
+  await mkdir(join(sourcePath, CONTROL_PACK_DIRECTORY), { recursive: true });
+  await writeFile(
+    join(sourcePath, CONTROL_PACK_DIRECTORY, "PACK.md"),
+    "Name: packport-control\nVersion: 0.0.0\nDescription: Control workflows.\n",
+  );
+
+  for (const [name, contents] of Object.entries(skills)) {
+    await mkdir(join(sourcePath, CONTROL_PACK_DIRECTORY, "skills", name), { recursive: true });
+    await writeFile(join(sourcePath, CONTROL_PACK_DIRECTORY, "skills", name, "SKILL.md"), contents);
+  }
 
   return sourcePath;
 }
