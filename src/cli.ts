@@ -2,13 +2,14 @@
 // ABOUTME: Keeps interactive workflows in skills while preserving automation entrypoints.
 
 import { join } from "node:path";
+import { formatClaudeMigrationScan, scanClaudeMigrationSource } from "./core/claude-migration";
 import { checkPackRepository, formatDiagnostics } from "./core/check";
 import { generateClaudeControlPlugin } from "./core/control-plugin";
 
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
-  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]";
+  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]";
 
 type CliResult = {
   readonly exitCode: number;
@@ -41,6 +42,22 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     return {
       exitCode: 0,
       stdout: `Generated Claude control plugin at ${result.pluginPath} with ${result.skills.length} skill(s).`,
+    };
+  }
+
+  if (command === "migrate-claude") {
+    const [subcommand, rootPath = process.cwd()] = args;
+
+    if (subcommand !== "scan") {
+      return { exitCode: 1, stderr: USAGE };
+    }
+
+    const result = await scanClaudeMigrationSource(rootPath);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: formatClaudeMigrationScan(result),
     };
   }
 

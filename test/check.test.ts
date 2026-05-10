@@ -77,7 +77,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 0,
-      stdout: `Generated Claude control plugin at ${outputPath} with 1 skill(s).`,
+      stdout: `Generated Claude control plugin at ${outputPath} with 2 skill(s).`,
     });
     expect(
       JSON.parse(await readFile(join(outputPath, ".claude-plugin/plugin.json"), "utf8")),
@@ -96,7 +96,37 @@ describe("runCli", () => {
     expect(result).toEqual({
       exitCode: 1,
       stderr:
-        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]",
+        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]",
+    });
+  });
+
+  test("runs Claude migration scans", async () => {
+    const rootPath = await createClaudePluginRepository();
+
+    const result = await runCli(["migrate-claude", "scan", rootPath]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Claude migration scan:");
+    expect(result.stdout).toContain("Plugins: 1");
+    expect(result.stdout).toContain("command essentials/commit unclear commands/commit.md");
+  });
+
+  test("returns nonzero for Claude migration scan errors", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-claude-scan-"));
+
+    const result = await runCli(["migrate-claude", "scan", rootPath]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("ERROR missing-claude-source");
+  });
+
+  test("reports Claude migration usage errors", async () => {
+    const result = await runCli(["migrate-claude"]);
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stderr:
+        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]",
     });
   });
 
@@ -115,10 +145,24 @@ describe("runCli", () => {
     expect(result).toEqual({
       exitCode: 1,
       stderr:
-        "Unknown command 'wat'.\nUsage: packport check [root]\n       packport control-plugin claude <output> [source-root]",
+        "Unknown command 'wat'.\nUsage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]",
     });
   });
 });
+
+/** Creates a valid temporary Claude plugin repository for CLI scan tests. */
+async function createClaudePluginRepository(): Promise<string> {
+  const rootPath = await mkdtemp(join(tmpdir(), "packport-claude-scan-"));
+  await mkdir(join(rootPath, ".claude-plugin"), { recursive: true });
+  await mkdir(join(rootPath, "commands"), { recursive: true });
+  await writeFile(
+    join(rootPath, ".claude-plugin/plugin.json"),
+    JSON.stringify({ description: "Essential workflows", name: "essentials", version: "1.0.0" }),
+  );
+  await writeFile(join(rootPath, "commands/commit.md"), "# Commit\n");
+
+  return rootPath;
+}
 
 /** Creates a valid temporary pack repository for check and CLI tests. */
 async function createValidPackRepository(): Promise<string> {

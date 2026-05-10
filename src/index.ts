@@ -4,6 +4,7 @@
 export const packageName = "packport";
 export const packageVersion = "0.0.0";
 
+export { formatClaudeMigrationScan, scanClaudeMigrationSource } from "./core/claude-migration";
 export { checkPackRepository, formatDiagnostics } from "./core/check";
 export {
   CONTROL_PLUGIN_NAME,
@@ -22,6 +23,13 @@ export {
 } from "./core/lockfile";
 export { parseMarkdownContract } from "./core/markdown";
 export { runCli } from "./cli";
+export type {
+  ClaudeMigrationAsset,
+  ClaudeMigrationAssetKind,
+  ClaudeMigrationClassification,
+  ClaudeMigrationPlugin,
+  ClaudeMigrationScanResult,
+} from "./core/claude-migration";
 export type { CheckResult } from "./core/check";
 export type { ControlSkill, GenerateControlPluginResult } from "./core/control-plugin";
 export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";

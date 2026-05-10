@@ -26,10 +26,11 @@ describe("control plugin generation", () => {
     const result = await generateClaudeControlPlugin(projectRootPath(), outputPath, "1.2.3");
 
     expect(result.pluginPath).toBe(outputPath);
-    expect(result.skills.map((skill) => skill.name)).toEqual(["check-pack"]);
+    expect(result.skills.map((skill) => skill.name)).toEqual(["check-pack", "migrate-claude"]);
     expect(result.files).toEqual([
       join(outputPath, ".claude-plugin/plugin.json"),
       join(outputPath, "skills/check-pack/SKILL.md"),
+      join(outputPath, "skills/migrate-claude/SKILL.md"),
       join(outputPath, CONTROL_PLUGIN_STATE_FILE),
     ]);
     expect(
@@ -43,9 +44,16 @@ describe("control plugin generation", () => {
     expect(await readFile(join(outputPath, "skills/check-pack/SKILL.md"), "utf8")).toBe(
       await readFile(join(projectRootPath(), "skills/check-pack/SKILL.md"), "utf8"),
     );
+    expect(await readFile(join(outputPath, "skills/migrate-claude/SKILL.md"), "utf8")).toBe(
+      await readFile(join(projectRootPath(), "skills/migrate-claude/SKILL.md"), "utf8"),
+    );
     expect(JSON.parse(await readFile(join(outputPath, CONTROL_PLUGIN_STATE_FILE), "utf8"))).toEqual(
       {
-        files: [".claude-plugin/plugin.json", "skills/check-pack/SKILL.md"],
+        files: [
+          ".claude-plugin/plugin.json",
+          "skills/check-pack/SKILL.md",
+          "skills/migrate-claude/SKILL.md",
+        ],
         generatedBy: "packport",
         stateVersion: 1,
       },
