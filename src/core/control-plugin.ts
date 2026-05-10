@@ -9,6 +9,11 @@ export const CONTROL_PLUGIN_STATE_FILE = ".packport-control-plugin.json";
 export const CONTROL_PACK_NAME = "packport-control";
 export const CONTROL_PACK_DIRECTORY = join("packs", CONTROL_PACK_NAME);
 export const CONTROL_SKILLS_DIRECTORY = "skills";
+export const CONFIGPORT_CONTROL_PLUGIN_NAME = "configport";
+export const CONFIGPORT_CONTROL_PACK_NAME = "configport-control";
+export const CONFIGPORT_CONTROL_PACK_DIRECTORY = join("packs", CONFIGPORT_CONTROL_PACK_NAME);
+
+export type ControlPluginKind = "configport" | "packport";
 
 export type ControlSkill = {
   readonly name: string;
@@ -34,9 +39,33 @@ type GeneratedControlPluginState = {
   readonly stateVersion: 1;
 };
 
-/** Discovers built-in packport control skills from the control pack source tree. */
-export async function discoverControlSkills(rootPath: string): Promise<ControlSkill[]> {
-  const skillsPath = controlSkillsPath(rootPath);
+function controlPluginManifest(
+  pluginKind: ControlPluginKind,
+  version: string,
+): ClaudePluginManifest {
+  if (pluginKind === "configport") {
+    return {
+      author: { name: "packport" },
+      description: "configport control skills for local agent-pack configuration",
+      name: CONFIGPORT_CONTROL_PLUGIN_NAME,
+      version,
+    };
+  }
+
+  return {
+    author: { name: "packport" },
+    description: "packport control skills for portable agent packs",
+    name: CONTROL_PLUGIN_NAME,
+    version,
+  };
+}
+
+/** Discovers built-in control skills from the selected control pack source tree. */
+export async function discoverControlSkills(
+  rootPath: string,
+  pluginKind: ControlPluginKind = "packport",
+): Promise<ControlSkill[]> {
+  const skillsPath = controlSkillsPath(rootPath, pluginKind);
   const entries = await readdir(skillsPath, { withFileTypes: true });
 
   return entries
@@ -48,18 +77,21 @@ export async function discoverControlSkills(rootPath: string): Promise<ControlSk
     .sort((left, right) => compareStrings(left.name, right.name));
 }
 
-/** Generates a Claude Code control plugin containing packport's built-in skills. */
+/** Generates a Claude Code control plugin containing built-in control skills. */
 export async function generateClaudeControlPlugin(
   rootPath: string,
   outputPath: string,
   version: string,
+  pluginKind: ControlPluginKind = "packport",
 ): Promise<GenerateControlPluginResult> {
   assertSafeOutputPath(rootPath, outputPath);
 
-  const skills = await discoverControlSkills(rootPath);
+  const skills = await discoverControlSkills(rootPath, pluginKind);
 
   if (skills.length === 0) {
-    throw new Error(`No packport control skills found under ${controlSkillsPath(rootPath)}.`);
+    throw new Error(
+      `No ${pluginKind} control skills found under ${controlSkillsPath(rootPath, pluginKind)}.`,
+    );
   }
 
   const files: string[] = [];
@@ -68,12 +100,11 @@ export async function generateClaudeControlPlugin(
 
   const manifestFile = ".claude-plugin/plugin.json";
 
-  await writeGeneratedJsonFile(outputPath, manifestFile, {
-    author: { name: "packport" },
-    description: "packport control skills for portable agent packs",
-    name: CONTROL_PLUGIN_NAME,
-    version,
-  });
+  await writeGeneratedJsonFile(
+    outputPath,
+    manifestFile,
+    controlPluginManifest(pluginKind, version),
+  );
   files.push(join(outputPath, manifestFile));
   generatedFiles.push(manifestFile);
 
@@ -100,29 +131,35 @@ async function readSourceSkillFile(skill: ControlSkill): Promise<string> {
   return await readFile(skill.sourcePath, "utf8");
 }
 
-/** Refuses output paths that overlap packport's source control pack tree. */
+/** Refuses output paths that overlap the selected source control pack tree. */
 function assertSafeOutputPath(rootPath: string, outputPath: string): void {
   const sourceRootPath = resolve(rootPath);
-  const sourceControlPackPath = resolve(controlPackPath(rootPath));
+  const sourceControlPackPaths = [
+    resolve(controlPackPath(rootPath, "packport")),
+    resolve(controlPackPath(rootPath, "configport")),
+  ];
   const resolvedOutputPath = resolve(outputPath);
 
   if (resolvedOutputPath === sourceRootPath) {
     throw new Error("Control plugin output path must not be the packport source root.");
   }
 
-  if (isSameOrInside(resolvedOutputPath, sourceControlPackPath)) {
-    throw new Error("Control plugin output path must not be inside the source control pack.");
+  if (sourceControlPackPaths.some((sourcePath) => isSameOrInside(resolvedOutputPath, sourcePath))) {
+    throw new Error("Control plugin output path must not be inside a source control pack.");
   }
 }
 
-/** Returns the packport control pack path under a repository root. */
-function controlPackPath(rootPath: string): string {
-  return join(rootPath, CONTROL_PACK_DIRECTORY);
+/** Returns a control pack path under a repository root. */
+function controlPackPath(rootPath: string, pluginKind: ControlPluginKind): string {
+  return join(
+    rootPath,
+    pluginKind === "configport" ? CONFIGPORT_CONTROL_PACK_DIRECTORY : CONTROL_PACK_DIRECTORY,
+  );
 }
 
-/** Returns the source skills directory inside the packport control pack. */
-function controlSkillsPath(rootPath: string): string {
-  return join(controlPackPath(rootPath), CONTROL_SKILLS_DIRECTORY);
+/** Returns the source skills directory inside the selected control pack. */
+function controlSkillsPath(rootPath: string, pluginKind: ControlPluginKind): string {
+  return join(controlPackPath(rootPath, pluginKind), CONTROL_SKILLS_DIRECTORY);
 }
 
 /** Removes files listed in packport's generated state before rewriting the plugin. */

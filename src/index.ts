@@ -13,7 +13,19 @@ export {
 } from "./core/claude-migration";
 export { checkPackRepository, formatDiagnostics } from "./core/check";
 export {
+  applyConfigportOverlay,
+  CONFIGPORT_STATE_FILE,
+  formatConfigportDiagnostics,
+  readConfigportState,
+  writeConfigportOverlay,
+} from "./core/configport";
+export {
+  CONFIGPORT_CONTROL_PACK_DIRECTORY,
+  CONFIGPORT_CONTROL_PACK_NAME,
+  CONFIGPORT_CONTROL_PLUGIN_NAME,
   CONTROL_PLUGIN_NAME,
+  CONTROL_PACK_DIRECTORY,
+  CONTROL_PACK_NAME,
   CONTROL_SKILLS_DIRECTORY,
   discoverControlSkills,
   generateClaudeControlPlugin,
@@ -45,7 +57,21 @@ export type {
   ClaudeMigrationWriteResult,
 } from "./core/claude-migration";
 export type { CheckResult } from "./core/check";
-export type { ControlSkill, GenerateControlPluginResult } from "./core/control-plugin";
+export type {
+  ApplyConfigportOverlayOptions,
+  ApplyConfigportOverlayResult,
+  ConfigportFileOverlay,
+  ConfigportOverlay,
+  ConfigportOverlaySelector,
+  ConfigportReplacement,
+  ConfigportState,
+  WriteConfigportOverlayResult,
+} from "./core/configport";
+export type {
+  ControlPluginKind,
+  ControlSkill,
+  GenerateControlPluginResult,
+} from "./core/control-plugin";
 export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";
 export type { GenerateOpenCodeResult } from "./core/opencode";
 export type {

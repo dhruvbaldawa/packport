@@ -10,14 +10,24 @@ import {
   writeClaudeMigration,
 } from "./core/claude-migration";
 import { checkPackRepository, formatDiagnostics } from "./core/check";
-import { generateClaudeControlPlugin } from "./core/control-plugin";
+import {
+  applyConfigportOverlay,
+  formatConfigportDiagnostics,
+  writeConfigportOverlay,
+  type ConfigportFileOverlay,
+  type ConfigportOverlay,
+  type ConfigportReplacement,
+} from "./core/configport";
+import { generateClaudeControlPlugin, type ControlPluginKind } from "./core/control-plugin";
 import { generateOpenCodeOutput } from "./core/opencode";
 
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
-  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
 const OPENCODE_USAGE = "Usage: packport opencode generate <pack-root> <output-root>";
+const CONFIGPORT_USAGE =
+  "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>";
 
 type ParsedClaudeMigrationArgs =
   | {
@@ -25,6 +35,26 @@ type ParsedClaudeMigrationArgs =
       readonly excludePlugins: readonly string[];
       readonly paths: readonly string[];
       readonly status: "ok";
+    }
+  | { readonly message: string; readonly status: "error" };
+
+type ParsedConfigportOverlayPutArgs =
+  | {
+      readonly overlay: ConfigportOverlay;
+      readonly stateRootPath: string;
+      readonly status: "ok";
+    }
+  | { readonly message: string; readonly status: "error" };
+
+type ParsedConfigportApplyArgs =
+  | {
+      readonly generatedPath: string;
+      readonly outputPath: string;
+      readonly pack: string;
+      readonly profile: string;
+      readonly stateRootPath: string;
+      readonly status: "ok";
+      readonly target: string;
     }
   | { readonly message: string; readonly status: "error" };
 
@@ -48,17 +78,34 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
   }
 
   if (command === "control-plugin") {
-    const [harness, outputPath, rootPath = CONTROL_SOURCE_ROOT] = args;
+    const [harness, firstArg, secondArg, thirdArg] = args;
 
-    if (harness !== "claude" || outputPath === undefined) {
+    if (harness !== "claude" || firstArg === undefined) {
       return { exitCode: 1, stderr: USAGE };
     }
 
-    const result = await generateClaudeControlPlugin(rootPath, outputPath, PACKAGE_VERSION);
+    const pluginKind: ControlPluginKind = firstArg === "configport" ? "configport" : "packport";
+    const outputPath = firstArg === "configport" ? secondArg : firstArg;
+    const rootPath =
+      firstArg === "configport"
+        ? (thirdArg ?? CONTROL_SOURCE_ROOT)
+        : (secondArg ?? CONTROL_SOURCE_ROOT);
+
+    if (outputPath === undefined) {
+      return { exitCode: 1, stderr: USAGE };
+    }
+
+    const result = await generateClaudeControlPlugin(
+      rootPath,
+      outputPath,
+      PACKAGE_VERSION,
+      pluginKind,
+    );
+    const label = pluginKind === "packport" ? "control plugin" : `${pluginKind} control plugin`;
 
     return {
       exitCode: 0,
-      stdout: `Generated Claude control plugin at ${result.pluginPath} with ${result.skills.length} skill(s).`,
+      stdout: `Generated Claude ${label} at ${result.pluginPath} with ${result.skills.length} skill(s).`,
     };
   }
 
@@ -177,9 +224,266 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     };
   }
 
+  if (command === "configport") {
+    return await runConfigportCli(args);
+  }
+
   return {
     exitCode: 1,
-    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${OPENCODE_USAGE}`,
+    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${OPENCODE_USAGE}\n${CONFIGPORT_USAGE}`,
+  };
+}
+
+async function runConfigportCli(args: readonly string[]): Promise<CliResult> {
+  const [subcommand, action] = args;
+
+  if (subcommand === "overlay" && action === "put") {
+    const parsed = parseConfigportOverlayPutArgs(args.slice(2));
+
+    if (parsed.status === "error") {
+      return { exitCode: 1, stderr: `${parsed.message}\n${CONFIGPORT_USAGE}` };
+    }
+
+    const result = await writeConfigportOverlay(parsed.stateRootPath, parsed.overlay);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = formatConfigportDiagnostics(result.diagnostics);
+    const summary = `Stored configport overlay ${parsed.overlay.profile}/${parsed.overlay.target}/${parsed.overlay.pack} at ${result.statePath} with ${result.summary.replacements} replacement(s) and ${result.summary.files} file overlay(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: result.diagnostics.length > 0 ? diagnostics : summary,
+    };
+  }
+
+  if (subcommand === "apply") {
+    const parsed = parseConfigportApplyArgs(args.slice(1));
+
+    if (parsed.status === "error") {
+      return { exitCode: 1, stderr: `${parsed.message}\n${CONFIGPORT_USAGE}` };
+    }
+
+    const result = await applyConfigportOverlay(parsed);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = formatConfigportDiagnostics(result.diagnostics);
+    const summary = `Applied configport overlay ${parsed.profile}/${parsed.target}/${parsed.pack} to ${result.outputPath} with ${result.summary.files} file(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: result.diagnostics.length > 0 ? diagnostics : summary,
+    };
+  }
+
+  return { exitCode: 1, stderr: CONFIGPORT_USAGE };
+}
+
+function parseConfigportOverlayPutArgs(args: readonly string[]): ParsedConfigportOverlayPutArgs {
+  const files: ConfigportFileOverlay[] = [];
+  const replacements: ConfigportReplacement[] = [];
+  const paths: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--replace") {
+      const value = args[index + 1];
+
+      if (value === undefined || value === "" || value.startsWith("--")) {
+        return { message: "--replace requires from=to.", status: "error" };
+      }
+
+      const replacement = parseAssignment(value, "--replace");
+
+      if (replacement.status === "error") {
+        return replacement;
+      }
+
+      replacements.push({ from: replacement.left, to: replacement.right });
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--replace=")) {
+      const replacement = parseAssignment(arg.slice("--replace=".length), "--replace");
+
+      if (replacement.status === "error") {
+        return replacement;
+      }
+
+      replacements.push({ from: replacement.left, to: replacement.right });
+      continue;
+    }
+
+    if (arg === "--file") {
+      const value = args[index + 1];
+
+      if (value === undefined || value === "" || value.startsWith("--")) {
+        return { message: "--file requires path=content.", status: "error" };
+      }
+
+      const file = parseAssignment(value, "--file");
+
+      if (file.status === "error") {
+        return file;
+      }
+
+      files.push({ content: file.right, path: file.left });
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--file=")) {
+      const file = parseAssignment(arg.slice("--file=".length), "--file");
+
+      if (file.status === "error") {
+        return file;
+      }
+
+      files.push({ content: file.right, path: file.left });
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      return { message: `Unknown configport overlay option '${arg}'.`, status: "error" };
+    }
+
+    paths.push(arg);
+  }
+
+  if (paths.length !== 4) {
+    return {
+      message: "configport overlay put requires state-root, profile, target, and pack.",
+      status: "error",
+    };
+  }
+
+  const [stateRootPath, profile, target, pack] = paths;
+
+  if (
+    stateRootPath === undefined ||
+    profile === undefined ||
+    target === undefined ||
+    pack === undefined
+  ) {
+    return {
+      message: "configport overlay put requires state-root, profile, target, and pack.",
+      status: "error",
+    };
+  }
+
+  return {
+    overlay: { files, pack, profile, replacements, target },
+    stateRootPath,
+    status: "ok",
+  };
+}
+
+function parseConfigportApplyArgs(args: readonly string[]): ParsedConfigportApplyArgs {
+  const paths: string[] = [];
+  let pack: string | undefined;
+  let profile: string | undefined;
+  let target: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--profile" || arg === "--target" || arg === "--pack") {
+      const value = args[index + 1];
+
+      if (value === undefined || value === "" || value.startsWith("--")) {
+        return { message: `${arg} requires a value.`, status: "error" };
+      }
+
+      if (arg === "--profile") {
+        profile = value;
+      } else if (arg === "--target") {
+        target = value;
+      } else {
+        pack = value;
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--profile=")) {
+      profile = arg.slice("--profile=".length);
+      continue;
+    }
+
+    if (arg.startsWith("--target=")) {
+      target = arg.slice("--target=".length);
+      continue;
+    }
+
+    if (arg.startsWith("--pack=")) {
+      pack = arg.slice("--pack=".length);
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      return { message: `Unknown configport apply option '${arg}'.`, status: "error" };
+    }
+
+    paths.push(arg);
+  }
+
+  if (paths.length !== 3) {
+    return {
+      message: "configport apply requires state-root, generated, and output paths.",
+      status: "error",
+    };
+  }
+
+  if (!profile || !target || !pack) {
+    return {
+      message: "configport apply requires --profile, --target, and --pack.",
+      status: "error",
+    };
+  }
+
+  const [stateRootPath, generatedPath, outputPath] = paths;
+
+  if (stateRootPath === undefined || generatedPath === undefined || outputPath === undefined) {
+    return {
+      message: "configport apply requires state-root, generated, and output paths.",
+      status: "error",
+    };
+  }
+
+  return {
+    generatedPath,
+    outputPath,
+    pack,
+    profile,
+    stateRootPath,
+    status: "ok",
+    target,
+  };
+}
+
+type ParsedAssignment =
+  | { readonly left: string; readonly right: string; readonly status: "ok" }
+  | { readonly message: string; readonly status: "error" };
+
+function parseAssignment(value: string, optionName: string): ParsedAssignment {
+  const separatorIndex = value.indexOf("=");
+
+  if (separatorIndex <= 0) {
+    return { message: `${optionName} requires name=value.`, status: "error" };
+  }
+
+  return {
+    left: value.slice(0, separatorIndex),
+    right: value.slice(separatorIndex + 1),
+    status: "ok",
   };
 }
 

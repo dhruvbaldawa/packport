@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  CONFIGPORT_CONTROL_PACK_DIRECTORY,
+  CONFIGPORT_CONTROL_PLUGIN_NAME,
   CONTROL_PACK_DIRECTORY,
   CONTROL_PLUGIN_NAME,
   CONTROL_PLUGIN_STATE_FILE,
@@ -67,6 +69,42 @@ describe("control plugin generation", () => {
     );
   });
 
+  test("generates a Claude configport control plugin with built-in skills", async () => {
+    const outputPath = join(await mkdtemp(join(tmpdir(), "configport-control-")), "configport");
+
+    const result = await generateClaudeControlPlugin(
+      projectRootPath(),
+      outputPath,
+      "1.2.3",
+      "configport",
+    );
+
+    expect(result.pluginPath).toBe(outputPath);
+    expect(result.skills.map((skill) => skill.name)).toEqual([
+      "apply-pack",
+      "configure-pack",
+      "configure-tools",
+    ]);
+    expect(
+      JSON.parse(await readFile(join(outputPath, ".claude-plugin/plugin.json"), "utf8")),
+    ).toEqual({
+      author: { name: "packport" },
+      description: "configport control skills for local agent-pack configuration",
+      name: CONFIGPORT_CONTROL_PLUGIN_NAME,
+      version: "1.2.3",
+    });
+    expect(await readFile(join(outputPath, "skills/configure-pack/SKILL.md"), "utf8")).toBe(
+      await readFile(
+        join(
+          projectRootPath(),
+          CONFIGPORT_CONTROL_PACK_DIRECTORY,
+          "skills/configure-pack/SKILL.md",
+        ),
+        "utf8",
+      ),
+    );
+  });
+
   test("removes previously generated stale Claude skill files", async () => {
     const sourcePath = await createControlSkillSource({
       "check-pack": "# Check\n",
@@ -94,14 +132,30 @@ describe("control plugin generation", () => {
         join(sourcePath, CONTROL_PACK_DIRECTORY, "skills/generated"),
         "1.2.3",
       ),
-    ).rejects.toThrow("Control plugin output path must not be inside the source control pack.");
+    ).rejects.toThrow("Control plugin output path must not be inside a source control pack.");
     await expect(
       generateClaudeControlPlugin(
         sourcePath,
         join(sourcePath, CONTROL_PACK_DIRECTORY, "generated"),
         "1.2.3",
       ),
-    ).rejects.toThrow("Control plugin output path must not be inside the source control pack.");
+    ).rejects.toThrow("Control plugin output path must not be inside a source control pack.");
+    await expect(
+      generateClaudeControlPlugin(
+        sourcePath,
+        join(sourcePath, CONFIGPORT_CONTROL_PACK_DIRECTORY, "generated"),
+        "1.2.3",
+        "packport",
+      ),
+    ).rejects.toThrow("Control plugin output path must not be inside a source control pack.");
+    await expect(
+      generateClaudeControlPlugin(
+        sourcePath,
+        join(sourcePath, CONTROL_PACK_DIRECTORY, "generated-configport"),
+        "1.2.3",
+        "configport",
+      ),
+    ).rejects.toThrow("Control plugin output path must not be inside a source control pack.");
   });
 
   test("refuses to remove generated files through symlinked output paths", async () => {

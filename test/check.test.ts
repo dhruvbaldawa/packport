@@ -63,8 +63,10 @@ Description: Core workflows.
 
 describe("runCli", () => {
   const usage =
-    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
   const opencodeUsage = "Usage: packport opencode generate <pack-root> <output-root>";
+  const configportUsage =
+    "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>";
 
   test("runs check and returns stdout", async () => {
     const rootPath = await createValidPackRepository();
@@ -91,6 +93,26 @@ describe("runCli", () => {
     });
     expect(await readFile(join(outputPath, "skills/check-pack/SKILL.md"), "utf8")).toStartWith(
       "---\nname: check-pack",
+    );
+  });
+
+  test("generates the Claude configport control plugin", async () => {
+    const outputPath = join(await mkdtemp(join(tmpdir(), "packport-cli-control-")), "configport");
+
+    const result = await runCli(["control-plugin", "claude", "configport", outputPath]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Generated Claude configport control plugin at ${outputPath} with 3 skill(s).`,
+    });
+    expect(
+      JSON.parse(await readFile(join(outputPath, ".claude-plugin/plugin.json"), "utf8")),
+    ).toMatchObject({
+      name: "configport",
+      version: "0.0.0",
+    });
+    expect(await readFile(join(outputPath, "skills/configure-pack/SKILL.md"), "utf8")).toStartWith(
+      "---\nname: configure-pack",
     );
   });
 
@@ -279,6 +301,67 @@ describe("runCli", () => {
     expect(result).toEqual({ exitCode: 1, stderr: opencodeUsage });
   });
 
+  test("stores and applies configport overlays", async () => {
+    const stateRootPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-state-"));
+    const generatedPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-generated-"));
+    const outputPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-output-"));
+    await mkdir(join(generatedPath, "commands/search"), { recursive: true });
+    await writeFile(join(generatedPath, "commands/search/COMMAND.md"), "Dhruv searches.\n");
+
+    const putResult = await runCli([
+      "configport",
+      "overlay",
+      "put",
+      stateRootPath,
+      "personal",
+      "opencode",
+      "todoist",
+      "--replace",
+      "Dhruv=Avery",
+      "--file",
+      ".opencode/local.conf=theme = system\n",
+    ]);
+
+    expect(putResult).toEqual({
+      exitCode: 0,
+      stdout: `Stored configport overlay personal/opencode/todoist at ${join(stateRootPath, "configport.json")} with 1 replacement(s) and 1 file overlay(s).`,
+    });
+
+    const applyResult = await runCli([
+      "configport",
+      "apply",
+      stateRootPath,
+      generatedPath,
+      outputPath,
+      "--profile",
+      "personal",
+      "--target",
+      "opencode",
+      "--pack",
+      "todoist",
+    ]);
+
+    expect(applyResult).toEqual({
+      exitCode: 0,
+      stdout: `Applied configport overlay personal/opencode/todoist to ${outputPath} with 2 file(s).`,
+    });
+    expect(await readFile(join(outputPath, "commands/search/COMMAND.md"), "utf8")).toBe(
+      "Avery searches.\n",
+    );
+    expect(await readFile(join(outputPath, ".opencode/local.conf"), "utf8")).toBe(
+      "theme = system\n",
+    );
+  });
+
+  test("reports configport usage errors", async () => {
+    const result = await runCli(["configport", "apply", "state", "generated", "output"]);
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stderr: `configport apply requires --profile, --target, and --pack.\n${configportUsage}`,
+    });
+  });
+
   test("returns nonzero for Claude migration scan errors", async () => {
     const rootPath = await mkdtemp(join(tmpdir(), "packport-claude-scan-"));
 
@@ -311,7 +394,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr: `Unknown command 'wat'.\n${usage}\n${opencodeUsage}`,
+      stderr: `Unknown command 'wat'.\n${usage}\n${opencodeUsage}\n${configportUsage}`,
     });
   });
 });
