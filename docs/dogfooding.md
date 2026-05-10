@@ -9,13 +9,14 @@ tooling. Second, point the migration flow at a real Claude-first pack repository
 From the packport repo:
 
 ```bash
-bun src/cli.ts check .
-bun src/cli.ts claude generate .
-bun src/cli.ts opencode generate . .packs/opencode --include-control-packs
-bun src/cli.ts codex generate . --include-control-packs
-bun src/cli.ts control-plugin claude .packs/claude/packport
-bun src/cli.ts control-plugin claude configport .packs/claude/configport
-bun src/cli.ts control-plugin claude-marketplace .
+bun link
+packport check .
+packport claude generate .
+packport opencode generate . .packs/opencode --include-control-packs
+packport codex generate . --include-control-packs
+packport control-plugin claude .packs/claude/packport
+packport control-plugin claude configport .packs/claude/configport
+packport control-plugin claude-marketplace .
 bun run check
 ```
 
@@ -49,8 +50,8 @@ The skills should call the CLI primitives. The CLI should not become the main in
 Start with read-only inspection:
 
 ```bash
-bun src/cli.ts migrate-claude scan /path/to/ccconfigs
-bun src/cli.ts migrate-claude plan /path/to/ccconfigs
+packport migrate-claude scan /path/to/ccconfigs
+packport migrate-claude plan /path/to/ccconfigs
 ```
 
 Review every question. Decide whether each questioned item is:
@@ -63,13 +64,13 @@ Review every question. Decide whether each questioned item is:
 Then write source to a separate directory:
 
 ```bash
-bun src/cli.ts migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable
+packport migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable
 ```
 
 If questions remain, rerun with accepted exclusions:
 
 ```bash
-bun src/cli.ts migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable \
+packport migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable \
   --exclude-plugin notifications \
   --exclude-asset essentials/todoist
 ```
@@ -77,9 +78,9 @@ bun src/cli.ts migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable \
 Validate and generate from the portable output:
 
 ```bash
-bun src/cli.ts check /tmp/ccconfigs-portable
-bun src/cli.ts codex generate /tmp/ccconfigs-portable
-bun src/cli.ts opencode generate /tmp/ccconfigs-portable /tmp/ccconfigs-portable/.packs/opencode
+packport check /tmp/ccconfigs-portable
+packport codex generate /tmp/ccconfigs-portable
+packport opencode generate /tmp/ccconfigs-portable /tmp/ccconfigs-portable/.packs/opencode
 ```
 
 ## What Good Dogfooding Should Prove

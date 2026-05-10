@@ -1,7 +1,14 @@
 # CLI Reference
 
-The CLI exposes deterministic primitives. In the source tree, run commands as
-`bun src/cli.ts ...`. After installation, the intended command name is `packport`.
+The CLI exposes deterministic primitives. The package installs a `packport` executable backed by
+Bun. From a source checkout, link it before dogfooding generated control skills:
+
+```bash
+bun link
+packport check .
+```
+
+During development, `bun src/cli.ts ...` remains equivalent to `packport ...`.
 
 ## check
 

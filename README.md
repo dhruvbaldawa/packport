@@ -11,6 +11,7 @@ Start with the user guide:
 
 Current implementation status:
 
+- The package exposes a Bun-backed `packport` CLI bin for local installs and generated skills.
 - Portable pack source is discovered from `packs/`.
 - Claude Code, OpenCode, and Codex user pack output can be generated under `.packs/`.
 - Claude Code and Codex control packages and repo-local marketplaces are generated for dogfooding.
