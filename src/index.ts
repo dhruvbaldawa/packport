@@ -33,7 +33,9 @@ export {
   CONTROL_PACK_DIRECTORY,
   CONTROL_PACK_NAME,
   CONTROL_SKILLS_DIRECTORY,
+  CLAUDE_CONTROL_MARKETPLACE_FILE,
   discoverControlSkills,
+  generateClaudeControlMarketplace,
   generateClaudeControlPlugin,
 } from "./core/control-plugin";
 export { discoverPackRepository } from "./core/discovery";
@@ -75,8 +77,10 @@ export type {
   WriteConfigportOverlayResult,
 } from "./core/configport";
 export type {
+  ClaudeControlMarketplaceEntry,
   ControlPluginKind,
   ControlSkill,
+  GenerateClaudeControlMarketplaceResult,
   GenerateControlPluginResult,
 } from "./core/control-plugin";
 export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";

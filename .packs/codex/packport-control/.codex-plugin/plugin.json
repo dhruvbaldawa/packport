@@ -1,0 +1,17 @@
+{
+  "author": {
+    "name": "packport"
+  },
+  "description": "packport control workflows for authoring, migration, validation, generation, and release.",
+  "interface": {
+    "category": "Productivity",
+    "developerName": "packport",
+    "displayName": "packport-control",
+    "longDescription": "packport control workflows for authoring, migration, validation, generation, and release.",
+    "shortDescription": "packport control workflows for authoring, migration, validation, generation, and release."
+  },
+  "license": "UNLICENSED",
+  "name": "packport-control",
+  "version": "0.0.0",
+  "skills": "./skills/"
+}

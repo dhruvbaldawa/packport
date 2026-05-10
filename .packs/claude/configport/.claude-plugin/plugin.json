@@ -1,0 +1,8 @@
+{
+  "author": {
+    "name": "packport"
+  },
+  "description": "configport control skills for local agent-pack configuration",
+  "name": "configport",
+  "version": "0.0.0"
+}

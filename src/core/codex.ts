@@ -34,15 +34,12 @@ type CodexPluginManifest = {
   readonly author: { readonly name: string };
   readonly description: string;
   readonly interface: {
-    readonly capabilities: readonly string[];
     readonly category: string;
-    readonly defaultPrompt: readonly string[];
     readonly developerName: string;
     readonly displayName: string;
     readonly longDescription: string;
     readonly shortDescription: string;
   };
-  readonly keywords: readonly string[];
   readonly license: string;
   readonly name: string;
   readonly skills?: string;
@@ -726,15 +723,12 @@ function codexPluginManifest(pack: PackIndex, hasSkills: boolean): CodexPluginMa
     author: { name: "packport" },
     description,
     interface: {
-      capabilities: ["Interactive"],
       category: "Productivity",
-      defaultPrompt: [`Use ${truncatePrompt(pack.name || pack.id)} workflows.`],
       developerName: "packport",
       displayName: pack.name || pack.id,
       longDescription: description,
       shortDescription: description,
     },
-    keywords: ["packport", "agent-pack", pack.id],
     license: "UNLICENSED",
     name: pack.id,
     version: pack.version || "0.0.0",
@@ -1218,8 +1212,4 @@ function toMarketplacePath(rootPath: string, pluginPath: string): string {
 
 function toPosixPath(path: string): string {
   return path.split(sep).join("/");
-}
-
-function truncatePrompt(value: string): string {
-  return value.length <= 108 ? value : `${value.slice(0, 108)}`;
 }

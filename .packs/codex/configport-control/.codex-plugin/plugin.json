@@ -1,0 +1,17 @@
+{
+  "author": {
+    "name": "packport"
+  },
+  "description": "Configport control workflows for local agent-pack configuration.",
+  "interface": {
+    "category": "Productivity",
+    "developerName": "packport",
+    "displayName": "configport-control",
+    "longDescription": "Configport control workflows for local agent-pack configuration.",
+    "shortDescription": "Configport control workflows for local agent-pack configuration."
+  },
+  "license": "UNLICENSED",
+  "name": "configport-control",
+  "version": "0.0.0",
+  "skills": "./skills/"
+}

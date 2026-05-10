@@ -6,12 +6,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  CLAUDE_CONTROL_MARKETPLACE_FILE,
   CONFIGPORT_CONTROL_PACK_DIRECTORY,
   CONFIGPORT_CONTROL_PLUGIN_NAME,
   CONTROL_PACK_DIRECTORY,
   CONTROL_PLUGIN_NAME,
   CONTROL_PLUGIN_STATE_FILE,
   discoverControlSkills,
+  generateClaudeControlMarketplace,
   generateClaudeControlPlugin,
 } from "../src/core/control-plugin";
 
@@ -102,6 +104,102 @@ describe("control plugin generation", () => {
         ),
         "utf8",
       ),
+    );
+  });
+
+  test("generates Claude control marketplace metadata", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-control-marketplace-"));
+    const packageRootPath = join(rootPath, ".packs/claude");
+    await mkdir(join(rootPath, "plugins/manual"), { recursive: true });
+    await mkdir(join(rootPath, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE),
+      JSON.stringify({
+        plugins: [
+          {
+            description: "Manual plugin",
+            name: "manual",
+            source: "plugins/manual",
+          },
+          {
+            description: "Old packport plugin",
+            name: "packport",
+            source: "../old-packport",
+          },
+        ],
+      }),
+    );
+
+    const result = await generateClaudeControlMarketplace(rootPath, packageRootPath);
+
+    expect(result.marketplacePath).toBe(join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE));
+    expect(result.files).toEqual([join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE)]);
+    expect(result.entries).toEqual([
+      {
+        description: "Manual plugin",
+        name: "manual",
+        source: "plugins/manual",
+      },
+      {
+        description: "packport control skills for portable agent packs",
+        name: "packport",
+        source: ".packs/claude/packport",
+      },
+      {
+        description: "configport control skills for local agent-pack configuration",
+        name: "configport",
+        source: ".packs/claude/configport",
+      },
+    ]);
+    expect(
+      JSON.parse(await readFile(join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE), "utf8")),
+    ).toEqual({
+      plugins: result.entries,
+    });
+  });
+
+  test("refuses unsafe preserved Claude control marketplace source paths", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-control-marketplace-"));
+    await mkdir(join(rootPath, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE),
+      JSON.stringify({
+        plugins: [
+          {
+            description: "Manual plugin",
+            name: "manual",
+            source: "../manual",
+          },
+        ],
+      }),
+    );
+
+    await expect(generateClaudeControlMarketplace(rootPath)).rejects.toThrow(
+      "Claude marketplace source path is invalid",
+    );
+  });
+
+  test("refuses symlinked preserved Claude control marketplace source paths", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-control-marketplace-"));
+    const outsidePath = await mkdtemp(join(tmpdir(), "packport-control-marketplace-outside-"));
+    await mkdir(join(rootPath, "plugins"), { recursive: true });
+    await mkdir(join(rootPath, ".claude-plugin"), { recursive: true });
+    await symlink(outsidePath, join(rootPath, "plugins/manual"));
+    await writeFile(
+      join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE),
+      JSON.stringify({
+        plugins: [
+          {
+            description: "Manual plugin",
+            name: "manual",
+            source: "plugins/manual",
+          },
+        ],
+      }),
+    );
+
+    await expect(generateClaudeControlMarketplace(rootPath)).rejects.toThrow(
+      "Generated path must not contain symlinks:",
     );
   });
 

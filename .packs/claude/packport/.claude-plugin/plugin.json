@@ -1,0 +1,8 @@
+{
+  "author": {
+    "name": "packport"
+  },
+  "description": "packport control skills for portable agent packs",
+  "name": "packport",
+  "version": "0.0.0"
+}

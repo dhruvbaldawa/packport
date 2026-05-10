@@ -2,13 +2,14 @@
 // ABOUTME: Keeps control skills separate from user pack payload generation.
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 
 export const CONTROL_PLUGIN_NAME = "packport";
 export const CONTROL_PLUGIN_STATE_FILE = ".packport-control-plugin.json";
 export const CONTROL_PACK_NAME = "packport-control";
 export const CONTROL_PACK_DIRECTORY = join("packs", CONTROL_PACK_NAME);
 export const CONTROL_SKILLS_DIRECTORY = "skills";
+export const CLAUDE_CONTROL_MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
 export const CONFIGPORT_CONTROL_PLUGIN_NAME = "configport";
 export const CONFIGPORT_CONTROL_PACK_NAME = "configport-control";
 export const CONFIGPORT_CONTROL_PACK_DIRECTORY = join("packs", CONFIGPORT_CONTROL_PACK_NAME);
@@ -26,6 +27,18 @@ export type GenerateControlPluginResult = {
   readonly skills: readonly ControlSkill[];
 };
 
+export type ClaudeControlMarketplaceEntry = {
+  readonly description: string;
+  readonly name: string;
+  readonly source: string;
+};
+
+export type GenerateClaudeControlMarketplaceResult = {
+  readonly entries: readonly ClaudeControlMarketplaceEntry[];
+  readonly files: readonly string[];
+  readonly marketplacePath: string;
+};
+
 type ClaudePluginManifest = {
   readonly author: { readonly name: string };
   readonly description: string;
@@ -37,6 +50,10 @@ type GeneratedControlPluginState = {
   readonly files: readonly string[];
   readonly generatedBy: "packport";
   readonly stateVersion: 1;
+};
+
+type ClaudeControlMarketplace = {
+  readonly plugins: readonly ClaudeControlMarketplaceEntry[];
 };
 
 function controlPluginManifest(
@@ -125,10 +142,117 @@ export async function generateClaudeControlPlugin(
   return { files, pluginPath: outputPath, skills };
 }
 
+/** Generates repo-local Claude Code marketplace metadata for built-in control plugins. */
+export async function generateClaudeControlMarketplace(
+  rootPath: string,
+  packageRootPath = join(rootPath, ".packs", "claude"),
+): Promise<GenerateClaudeControlMarketplaceResult> {
+  const marketplacePath = join(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE);
+  const generatedEntries = claudeControlMarketplaceEntries(rootPath, packageRootPath);
+  const generatedEntriesByName = new Map(generatedEntries.map((entry) => [entry.name, entry]));
+  const replacedNames = new Set<string>();
+  const existing = await readClaudeControlMarketplace(marketplacePath);
+  const preservedEntries = existing.plugins.map((entry) => {
+    const replacement = generatedEntriesByName.get(entry.name);
+
+    if (replacement) {
+      replacedNames.add(entry.name);
+      return replacement;
+    }
+
+    return entry;
+  });
+  const entries = [
+    ...preservedEntries,
+    ...generatedEntries.filter((entry) => !replacedNames.has(entry.name)),
+  ];
+
+  await validateClaudeControlMarketplaceEntries(rootPath, entries, marketplacePath);
+  await writeGeneratedJsonFile(rootPath, CLAUDE_CONTROL_MARKETPLACE_FILE, { plugins: entries });
+
+  return {
+    entries,
+    files: [marketplacePath],
+    marketplacePath,
+  };
+}
+
+function claudeControlMarketplaceEntries(
+  rootPath: string,
+  packageRootPath: string,
+): readonly ClaudeControlMarketplaceEntry[] {
+  return [
+    claudeControlMarketplaceEntry("packport", rootPath, packageRootPath),
+    claudeControlMarketplaceEntry("configport", rootPath, packageRootPath),
+  ];
+}
+
+function claudeControlMarketplaceEntry(
+  pluginKind: ControlPluginKind,
+  rootPath: string,
+  packageRootPath: string,
+): ClaudeControlMarketplaceEntry {
+  const manifest = controlPluginManifest(pluginKind, "0.0.0");
+
+  return {
+    description: manifest.description,
+    name: manifest.name,
+    source: slashPath(relative(rootPath, join(packageRootPath, manifest.name))),
+  };
+}
+
 /** Reads a source skill only after rejecting symlink traversal. */
 async function readSourceSkillFile(skill: ControlSkill): Promise<string> {
   await assertPathDoesNotContainSymlinks(skill.sourcePath);
   return await readFile(skill.sourcePath, "utf8");
+}
+
+async function readClaudeControlMarketplace(path: string): Promise<ClaudeControlMarketplace> {
+  try {
+    await assertPathDoesNotContainSymlinks(path);
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+
+    const marketplace = normalizeClaudeControlMarketplace(parsed);
+
+    if (marketplace) {
+      return marketplace;
+    }
+
+    throw new Error(`Claude control marketplace is invalid: ${path}`);
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return { plugins: [] };
+    }
+
+    throw error;
+  }
+}
+
+async function validateClaudeControlMarketplaceEntries(
+  rootPath: string,
+  entries: readonly ClaudeControlMarketplaceEntry[],
+  marketplacePath: string,
+): Promise<void> {
+  const resolvedRootPath = resolve(rootPath);
+
+  for (const entry of entries) {
+    if (!isSafeGeneratedFilePath(entry.source)) {
+      throw new Error(
+        `Claude marketplace source path is invalid in ${marketplacePath}: ${entry.source}`,
+      );
+    }
+
+    const resolvedSourcePath = resolve(rootPath, entry.source);
+    const relativeSourcePath = relative(resolvedRootPath, resolvedSourcePath);
+
+    if (isOutsideRelativePath(relativeSourcePath)) {
+      throw new Error(
+        `Claude marketplace source path must stay inside ${rootPath}: ${entry.source}`,
+      );
+    }
+
+    await assertPathDoesNotContainSymlinks(resolvedSourcePath);
+  }
 }
 
 /** Refuses output paths that overlap the selected source control pack tree. */
@@ -183,7 +307,7 @@ async function removeGeneratedFile(outputPath: string, generatedFile: string): P
 async function writeGeneratedJsonFile(
   outputPath: string,
   generatedFile: string,
-  value: ClaudePluginManifest | GeneratedControlPluginState,
+  value: unknown,
 ): Promise<void> {
   await writeGeneratedTextFile(outputPath, generatedFile, `${JSON.stringify(value, null, 2)}\n`);
 }
@@ -268,6 +392,28 @@ function isGeneratedControlPluginState(value: unknown): value is GeneratedContro
   );
 }
 
+function normalizeClaudeControlMarketplace(value: unknown): ClaudeControlMarketplace | undefined {
+  if (!isRecord(value) || !Array.isArray(value.plugins)) {
+    return undefined;
+  }
+
+  const plugins: ClaudeControlMarketplaceEntry[] = [];
+
+  for (const entry of value.plugins) {
+    if (!isRecord(entry) || typeof entry.name !== "string" || typeof entry.source !== "string") {
+      return undefined;
+    }
+
+    plugins.push({
+      description: typeof entry.description === "string" ? entry.description : "",
+      name: entry.name,
+      source: entry.source,
+    });
+  }
+
+  return { plugins };
+}
+
 /** Checks that a generated file path can only address files under the output directory. */
 function isSafeGeneratedFilePath(value: unknown): value is string {
   return (
@@ -292,9 +438,17 @@ function compareStrings(left: string, right: string): number {
   return 0;
 }
 
+function slashPath(path: string): string {
+  return path.split(sep).join("/");
+}
+
 /** Checks whether a path is equal to or nested inside another path. */
 function isSameOrInside(path: string, parentPath: string): boolean {
   return path === parentPath || path.startsWith(`${parentPath}${sep}`);
+}
+
+function isOutsideRelativePath(value: string): boolean {
+  return value === ".." || value.startsWith(`..${sep}`) || value.startsWith("../");
 }
 
 /** Narrows unknown parsed JSON values to records. */

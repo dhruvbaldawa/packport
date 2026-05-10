@@ -19,13 +19,17 @@ import {
   type ConfigportOverlay,
   type ConfigportReplacement,
 } from "./core/configport";
-import { generateClaudeControlPlugin, type ControlPluginKind } from "./core/control-plugin";
+import {
+  generateClaudeControlMarketplace,
+  generateClaudeControlPlugin,
+  type ControlPluginKind,
+} from "./core/control-plugin";
 import { generateOpenCodeOutput } from "./core/opencode";
 
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
-  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
 const OPENCODE_USAGE = "Usage: packport opencode generate <pack-root> <output-root>";
 const CODEX_USAGE = "Usage: packport codex generate <pack-root> [output-root]";
 const CONFIGPORT_USAGE =
@@ -81,6 +85,19 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
 
   if (command === "control-plugin") {
     const [harness, firstArg, secondArg, thirdArg] = args;
+
+    if (harness === "claude-marketplace") {
+      if (firstArg === undefined || args.length > 3) {
+        return { exitCode: 1, stderr: USAGE };
+      }
+
+      const result = await generateClaudeControlMarketplace(firstArg, secondArg);
+
+      return {
+        exitCode: 0,
+        stdout: `Generated Claude control marketplace at ${result.marketplacePath} with ${result.entries.length} plugin(s).`,
+      };
+    }
 
     if (harness !== "claude" || firstArg === undefined) {
       return { exitCode: 1, stderr: USAGE };

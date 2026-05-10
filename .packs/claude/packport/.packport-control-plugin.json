@@ -1,0 +1,9 @@
+{
+  "files": [
+    ".claude-plugin/plugin.json",
+    "skills/check-pack/SKILL.md",
+    "skills/migrate-claude/SKILL.md"
+  ],
+  "generatedBy": "packport",
+  "stateVersion": 1
+}

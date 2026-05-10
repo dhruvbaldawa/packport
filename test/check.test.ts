@@ -63,7 +63,7 @@ Description: Core workflows.
 
 describe("runCli", () => {
   const usage =
-    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
   const opencodeUsage = "Usage: packport opencode generate <pack-root> <output-root>";
   const codexUsage = "Usage: packport codex generate <pack-root> [output-root]";
   const configportUsage =
@@ -138,6 +138,33 @@ describe("runCli", () => {
     expect(await readFile(join(outputPath, "skills/configure-pack/SKILL.md"), "utf8")).toStartWith(
       "---\nname: configure-pack",
     );
+  });
+
+  test("generates the Claude control marketplace", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-cli-control-marketplace-"));
+
+    const result = await runCli(["control-plugin", "claude-marketplace", rootPath]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Generated Claude control marketplace at ${join(rootPath, ".claude-plugin/marketplace.json")} with 2 plugin(s).`,
+    });
+    expect(
+      JSON.parse(await readFile(join(rootPath, ".claude-plugin/marketplace.json"), "utf8")),
+    ).toEqual({
+      plugins: [
+        {
+          description: "packport control skills for portable agent packs",
+          name: "packport",
+          source: ".packs/claude/packport",
+        },
+        {
+          description: "configport control skills for local agent-pack configuration",
+          name: "configport",
+          source: ".packs/claude/configport",
+        },
+      ],
+    });
   });
 
   test("reports control plugin usage errors", async () => {

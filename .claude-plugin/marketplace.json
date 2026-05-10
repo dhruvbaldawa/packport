@@ -1,0 +1,14 @@
+{
+  "plugins": [
+    {
+      "description": "packport control skills for portable agent packs",
+      "name": "packport",
+      "source": ".packs/claude/packport"
+    },
+    {
+      "description": "configport control skills for local agent-pack configuration",
+      "name": "configport",
+      "source": ".packs/claude/configport"
+    }
+  ]
+}

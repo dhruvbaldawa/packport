@@ -1,0 +1,10 @@
+{
+  "files": [
+    ".claude-plugin/plugin.json",
+    "skills/apply-pack/SKILL.md",
+    "skills/configure-pack/SKILL.md",
+    "skills/configure-tools/SKILL.md"
+  ],
+  "generatedBy": "packport",
+  "stateVersion": 1
+}

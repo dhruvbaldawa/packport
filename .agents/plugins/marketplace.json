@@ -1,0 +1,32 @@
+{
+  "interface": {
+    "displayName": "packport Local Packs"
+  },
+  "name": "packport-local",
+  "plugins": [
+    {
+      "category": "Productivity",
+      "name": "configport-control",
+      "policy": {
+        "authentication": "ON_INSTALL",
+        "installation": "AVAILABLE"
+      },
+      "source": {
+        "path": "./.packs/codex/configport-control",
+        "source": "local"
+      }
+    },
+    {
+      "category": "Productivity",
+      "name": "packport-control",
+      "policy": {
+        "authentication": "ON_INSTALL",
+        "installation": "AVAILABLE"
+      },
+      "source": {
+        "path": "./.packs/codex/packport-control",
+        "source": "local"
+      }
+    }
+  ]
+}
