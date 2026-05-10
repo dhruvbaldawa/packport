@@ -123,8 +123,7 @@ Run inside Claude Code.
         "---",
         "allowed-tools: Bash(scripts/todoist.ts)",
         "---",
-        "Set $" +
-          "{TODOIST_BRACED_TOKEN}, $TODOIST_PLAIN_TOKEN, and TODOIST_BARE_TOKEN before use.",
+        "Set $" + "{TODOIST_BRACED_TOKEN} and $TODOIST_PLAIN_TOKEN before use.",
         "Load --env-file=.env before running.",
         "Read ~/.config/todoist/config.toml. Then call the helper.",
       ].join("\n"),
@@ -151,11 +150,6 @@ Run inside Claude Code.
           kind: "script-reference",
           message: "References script path scripts/todoist.ts.",
           value: "scripts/todoist.ts",
-        },
-        {
-          kind: "variable-reference",
-          message: "References variable TODOIST_BARE_TOKEN.",
-          value: "TODOIST_BARE_TOKEN",
         },
         {
           kind: "variable-reference",
@@ -197,6 +191,32 @@ Run inside Claude Code.
       name: "review",
       path: "commands/review.md",
       pluginName: "security",
+    });
+  });
+
+  test("does not infer variable facts from bare uppercase identifiers", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Planning workflows",
+        name: "planning",
+        version: "1.0.0",
+      }),
+      "commands/plan.md":
+        "Track ARGS, NEEDS_FIX, READY_FOR_REVIEW, and TODOIST_API_TOKEN labels.\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins[0]?.assets[0]).toMatchObject({
+      classification: "pack-candidate",
+      decisionRequired: false,
+      facts: [],
+      kind: "command",
+      name: "plan",
+      path: "commands/plan.md",
+      pluginName: "planning",
     });
   });
 

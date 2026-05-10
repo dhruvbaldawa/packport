@@ -125,7 +125,6 @@ const SCRIPT_REFERENCE_PATTERN =
   /(?:^|[\s`'"(=])((?:\.\/)?scripts\/[A-Za-z0-9._/-]+\.(?:cjs|js|mjs|sh|ts))(?=$|[\s`'"),;:]|\.(?=$|[\s`'")]))/g;
 const BRACED_VARIABLE_PATTERN = /\$\{([A-Z][A-Z0-9_]*)\}/g;
 const PLAIN_VARIABLE_PATTERN = /\$([A-Z][A-Z0-9_]*)\b/g;
-const UPPERCASE_IDENTIFIER_PATTERN = /\b[A-Z][A-Z0-9]*_[A-Z0-9_]*\b/g;
 
 /** Scans a Claude marketplace root or a single Claude plugin directory. */
 export async function scanClaudeMigrationSource(
@@ -803,10 +802,6 @@ function collectFacts(value: string): ClaudeMigrationFact[] {
   }
 
   for (const variable of matchPatternValues(PLAIN_VARIABLE_PATTERN, value)) {
-    addFact("variable-reference", variable, `References variable ${variable}.`);
-  }
-
-  for (const variable of matchPatternValues(UPPERCASE_IDENTIFIER_PATTERN, value)) {
     addFact("variable-reference", variable, `References variable ${variable}.`);
   }
 
