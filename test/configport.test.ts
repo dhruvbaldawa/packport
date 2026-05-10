@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import {
   applyConfigportOverlay,
   checkConfigportOverlay,
+  CONFIGPORT_OVERLAY_PROVENANCE_FILE,
   CONFIGPORT_STATE_FILE,
   materializeConfigportInstructions,
   readConfigportState,
@@ -64,7 +65,7 @@ describe("configport overlays", () => {
     });
 
     expect(applyResult.diagnostics).toEqual([]);
-    expect(applyResult.summary).toEqual({ files: 2, overlays: 1, replacements: 2 });
+    expect(applyResult.summary).toEqual({ files: 3, overlays: 1, replacements: 2 });
     expect(await readFile(join(generatedPath, "commands/search/COMMAND.md"), "utf8")).toBe(
       "Dhruv searches Todoist from /Users/dhruv/todoist.\n",
     );
@@ -74,6 +75,19 @@ describe("configport overlays", () => {
     expect(await readFile(join(outputPath, ".opencode/local.conf"), "utf8")).toBe(
       "theme = system\n",
     );
+    expect(
+      JSON.parse(await readFile(join(outputPath, CONFIGPORT_OVERLAY_PROVENANCE_FILE), "utf8")),
+    ).toEqual({
+      files: 1,
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      provenanceVersion: 1,
+      replacements: 2,
+      statePath: join(stateRootPath, CONFIGPORT_STATE_FILE),
+      target: "opencode",
+    });
   });
 
   test("checks materialized overlay drift without rewriting output", async () => {
@@ -109,7 +123,7 @@ describe("configport overlays", () => {
     });
 
     expect(cleanResult.diagnostics).toEqual([]);
-    expect(cleanResult.summary).toEqual({ files: 2, overlays: 1, replacements: 1 });
+    expect(cleanResult.summary).toEqual({ files: 3, overlays: 1, replacements: 1 });
 
     await writeFile(join(outputPath, "commands/search/COMMAND.md"), "manual edit\n");
     const driftResult = await checkConfigportOverlay({
@@ -145,6 +159,68 @@ describe("configport overlays", () => {
       "configport-output-drift",
       "missing-configport-output",
     ]);
+  });
+
+  test("checks overlay provenance drift", async () => {
+    const stateRootPath = await createTempDirectory("configport-state-");
+    const generatedPath = await createTempDirectory("configport-generated-");
+    const outputPath = await createTempDirectory("configport-output-");
+    await writeFileTree(generatedPath, {
+      "commands/search/COMMAND.md": "Search Todoist tasks.\n",
+    });
+    await applyConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+    await writeFile(join(outputPath, CONFIGPORT_OVERLAY_PROVENANCE_FILE), "{}\n");
+
+    const result = await checkConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+
+    expect(result.diagnostics).toContainEqual({
+      code: "configport-output-drift",
+      message: "Materialized configport output differs from the expected overlay result.",
+      path: join(outputPath, CONFIGPORT_OVERLAY_PROVENANCE_FILE),
+      severity: "error",
+    });
+    expect(result.summary).toEqual({ files: 2, overlays: 0, replacements: 0 });
+  });
+
+  test("rejects generated files at the reserved overlay provenance path", async () => {
+    const stateRootPath = await createTempDirectory("configport-state-");
+    const generatedPath = await createTempDirectory("configport-generated-");
+    const outputPath = await createTempDirectory("configport-output-");
+    await writeFileTree(generatedPath, {
+      [CONFIGPORT_OVERLAY_PROVENANCE_FILE]: "{}\n",
+    });
+
+    const result = await applyConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+
+    expect(result.diagnostics).toContainEqual({
+      code: "reserved-configport-generated-path",
+      message: `Generated output path is reserved for configport provenance: ${CONFIGPORT_OVERLAY_PROVENANCE_FILE}.`,
+      path: join(generatedPath, CONFIGPORT_OVERLAY_PROVENANCE_FILE),
+      severity: "error",
+    });
+    expect(result.summary).toEqual({ files: 0, overlays: 0, replacements: 0 });
+    await expect(lstat(join(outputPath, CONFIGPORT_OVERLAY_PROVENANCE_FILE))).rejects.toThrow();
   });
 
   test("checks invalid outputs without hiding sibling diagnostics", async () => {
@@ -242,10 +318,31 @@ describe("configport overlays", () => {
     });
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.summary.files).toBe(1);
+    expect(result.summary.files).toBe(2);
     expect(await readFile(join(outputPath, ".opencode/local.conf"), "utf8")).toBe(
       "theme = system\n",
     );
+  });
+
+  test("rejects overlay files at the reserved overlay provenance path", async () => {
+    const stateRootPath = await createTempDirectory("configport-state-");
+
+    const result = await writeConfigportOverlay(stateRootPath, {
+      files: [{ content: "{}\n", path: CONFIGPORT_OVERLAY_PROVENANCE_FILE }],
+      pack: "todoist",
+      profile: "personal",
+      replacements: [],
+      target: "opencode",
+    });
+
+    expect(result.diagnostics).toContainEqual({
+      code: "reserved-configport-overlay-path",
+      message: `Overlay file path is reserved for configport provenance: ${CONFIGPORT_OVERLAY_PROVENANCE_FILE}.`,
+      path: join(stateRootPath, CONFIGPORT_STATE_FILE),
+      severity: "error",
+    });
+    expect(result.summary).toEqual({ files: 0, overlays: 0, replacements: 0 });
+    await expect(lstat(join(stateRootPath, CONFIGPORT_STATE_FILE))).rejects.toThrow();
   });
 
   test("rejects unsafe overlay paths from hand-edited state during apply", async () => {

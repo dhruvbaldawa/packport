@@ -618,7 +618,7 @@ describe("runCli", () => {
 
     expect(applyResult).toEqual({
       exitCode: 0,
-      stdout: `Applied configport overlay personal/opencode/todoist to ${outputPath} with 2 file(s).`,
+      stdout: `Applied configport overlay personal/opencode/todoist to ${outputPath} with 3 file(s).`,
     });
     expect(await readFile(join(outputPath, "commands/search/COMMAND.md"), "utf8")).toBe(
       "Avery searches.\n",
@@ -643,7 +643,7 @@ describe("runCli", () => {
 
     expect(cleanCheckResult).toEqual({
       exitCode: 0,
-      stdout: `Checked configport overlay personal/opencode/todoist at ${outputPath} with 2 file(s).`,
+      stdout: `Checked configport overlay personal/opencode/todoist at ${outputPath} with 3 file(s).`,
     });
 
     await writeFile(join(outputPath, "commands/search/COMMAND.md"), "manual edit\n");
@@ -663,7 +663,7 @@ describe("runCli", () => {
 
     expect(driftCheckResult.exitCode).toBe(1);
     expect(driftCheckResult.stdout).toContain(
-      `Checked configport overlay personal/opencode/todoist at ${outputPath} with 2 file(s).`,
+      `Checked configport overlay personal/opencode/todoist at ${outputPath} with 3 file(s).`,
     );
     expect(driftCheckResult.stdout).toContain("ERROR configport-output-drift");
   });

@@ -59,6 +59,10 @@ bun src/cli.ts configport apply .configport .packs/codex/essentials .materialize
 This copies generated files from `.packs/codex/essentials`, applies replacements, adds overlay
 files, and writes the result to `.materialized/codex/essentials`.
 
+`apply` also writes `.packport/configport-overlay.json` into the materialized output. This manifest
+records the selected profile, target, pack, generated root, state file, and overlay counts without
+embedding replacement values.
+
 The output path must not be the generated package path or inside it.
 
 ## Check An Overlay
@@ -72,7 +76,7 @@ bun src/cli.ts configport check .configport .packs/codex/essentials .materialize
 
 This recomputes the selected overlay result without writing files. It reports missing materialized
 files and output drift when the existing materialized tree no longer matches generated output plus
-the selected overlay.
+the selected overlay, including the configport provenance manifest.
 
 ## Materialize Instructions
 

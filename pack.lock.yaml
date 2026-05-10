@@ -2,7 +2,7 @@ assets:
   - id: configport-control/skill/apply-pack
     kind: skill
     payloads:
-      - hash: a41ff716ac24dc772bb0dea506ff2b5ddbc13a597f3a73e85209b093ebf76d98
+      - hash: 0905c0126d07e3f178af1501f94c0c8093b07364a4256977febfce7f6b56deac
         path: packs/configport-control/skills/apply-pack/SKILL.md
   - id: configport-control/skill/configure-pack
     kind: skill
@@ -66,7 +66,7 @@ outputs:
     packageName: configport
     path: .packs/claude/configport/.packport-control-plugin.json
     target: claude
-  - hash: a41ff716ac24dc772bb0dea506ff2b5ddbc13a597f3a73e85209b093ebf76d98
+  - hash: 0905c0126d07e3f178af1501f94c0c8093b07364a4256977febfce7f6b56deac
     kind: package
     packageName: configport
     path: .packs/claude/configport/skills/apply-pack/SKILL.md
@@ -126,7 +126,7 @@ outputs:
     packageName: configport-control
     path: .packs/codex/configport-control/.codex-plugin/plugin.json
     target: codex
-  - hash: 1283aa26c6c68f5114b94f7af758e0ced1a3dee237ebed7634136e8216c99d01
+  - hash: dba00cf3d8baacd75ac0065a040a48d5b441585dc17294878bc6b2ac3cb8c196
     kind: package
     packageName: configport-control
     path: .packs/codex/configport-control/skills/apply-pack/SKILL.md
@@ -181,7 +181,7 @@ outputs:
     packageName: opencode
     path: .packs/opencode/.opencode/skills/add-harness/SKILL.md
     target: opencode
-  - hash: 1283aa26c6c68f5114b94f7af758e0ced1a3dee237ebed7634136e8216c99d01
+  - hash: dba00cf3d8baacd75ac0065a040a48d5b441585dc17294878bc6b2ac3cb8c196
     kind: package
     packageName: opencode
     path: .packs/opencode/.opencode/skills/apply-pack/SKILL.md

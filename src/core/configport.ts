@@ -9,6 +9,7 @@ import { scanPortableRefs } from "./refs";
 import type { AssetIndex, Diagnostic } from "./types";
 
 export const CONFIGPORT_STATE_FILE = "configport.json";
+export const CONFIGPORT_OVERLAY_PROVENANCE_FILE = ".packport/configport-overlay.json";
 
 export type ConfigportOverlaySelector = {
   readonly pack: string;
@@ -381,6 +382,16 @@ async function planConfigportOverlay(
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     for (const generatedFile of generatedFiles) {
+      if (isReservedConfigportOutputPath(generatedFile.relativePath)) {
+        diagnostics.push({
+          code: "reserved-configport-generated-path",
+          message: `Generated output path is reserved for configport provenance: ${generatedFile.relativePath}.`,
+          path: generatedFile.sourcePath,
+          severity: "error",
+        });
+        continue;
+      }
+
       const content = applyReplacements(
         await readFile(generatedFile.sourcePath, "utf8"),
         overlay?.replacements ?? [],
@@ -397,6 +408,11 @@ async function planConfigportOverlay(
         path: join(options.outputPath, fileOverlay.path),
       });
     }
+
+    replacePlannedWrite(writes, {
+      content: createOverlayProvenance(options, overlay),
+      path: join(options.outputPath, CONFIGPORT_OVERLAY_PROVENANCE_FILE),
+    });
 
     diagnostics.push(...(await validatePlannedWrites(writes, planOptions)));
   }
@@ -606,6 +622,16 @@ function validateOverlay(overlay: ConfigportOverlay, path: string): Diagnostic[]
         path,
         severity: "error",
       });
+      continue;
+    }
+
+    if (isReservedConfigportOutputPath(file.path)) {
+      diagnostics.push({
+        code: "reserved-configport-overlay-path",
+        message: `Overlay file path is reserved for configport provenance: ${file.path}.`,
+        path,
+        severity: "error",
+      });
     }
   }
 
@@ -701,6 +727,27 @@ function replacePlannedWrite(writes: PlannedWrite[], write: PlannedWrite): void 
   }
 
   writes.push(write);
+}
+
+function createOverlayProvenance(
+  options: ApplyConfigportOverlayOptions,
+  overlay: ConfigportOverlay | undefined,
+): string {
+  return `${JSON.stringify(
+    {
+      files: overlay?.files.length ?? 0,
+      generatedPath: options.generatedPath,
+      outputPath: options.outputPath,
+      pack: options.pack,
+      profile: options.profile,
+      provenanceVersion: 1,
+      replacements: overlay?.replacements.length ?? 0,
+      statePath: configportStatePath(options.stateRootPath),
+      target: options.target,
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 function validateSelector(selector: ConfigportOverlaySelector, path: string): Diagnostic[] {
@@ -1328,6 +1375,10 @@ function isSafeRelativePath(value: string): boolean {
     !value.includes("\\") &&
     !segments.some((segment) => segment === "" || segment === "." || segment === "..")
   );
+}
+
+function isReservedConfigportOutputPath(value: string): boolean {
+  return value === CONFIGPORT_OVERLAY_PROVENANCE_FILE;
 }
 
 function isSafeInstructionName(value: string): boolean {
