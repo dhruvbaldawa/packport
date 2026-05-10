@@ -337,7 +337,7 @@ describe("runCli", () => {
 
   test("generates OpenCode output", async () => {
     const rootPath = await createValidPackRepository();
-    const outputPath = join(await mkdtemp(join(tmpdir(), "packport-cli-opencode-")), "repo");
+    const outputPath = join(rootPath, ".packs/opencode");
 
     const result = await runCli(["opencode", "generate", rootPath, outputPath]);
 

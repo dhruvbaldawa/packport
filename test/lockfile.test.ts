@@ -19,16 +19,25 @@ import {
 describe("pack.lock.yaml", () => {
   test("creates deterministic lockfile content from discovered sources", async () => {
     const rootPath = await createValidPackRepository();
+    const outputPath = join(rootPath, ".packs/opencode/opencode.json");
+    await mkdir(join(outputPath, ".."), { recursive: true });
+    await writeFile(outputPath, "{}\n");
     const discovery = await discoverPackRepository(rootPath);
-    const lock = await createPackLock(rootPath, discovery.index, "0.0.0");
+    const outputs = [
+      { kind: "package" as const, packageName: "opencode", path: outputPath, target: "opencode" },
+    ];
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0", outputs);
 
     const serialized = serializePackLock(lock);
-    const secondLock = await createPackLock(rootPath, discovery.index, "0.0.0");
+    const secondLock = await createPackLock(rootPath, discovery.index, "0.0.0", outputs);
 
     expect(serialized).toBe(serializePackLock(secondLock));
     expect(serialized).toContain("path: packs/essentials/PACK.md");
     expect(serialized).toContain("path: packs/essentials/commands/commit/COMMAND.md");
     expect(serialized).toContain("path: packs/essentials/commands/commit/ASSET.md");
+    expect(serialized).toContain("path: .packs/opencode/opencode.json");
+    expect(serialized).toContain("target: opencode");
+    expect(serialized).toContain("kind: package");
     expect(serialized).not.toContain(rootPath);
   });
 
@@ -69,6 +78,29 @@ describe("pack.lock.yaml", () => {
       code: "missing-locked-source",
       message: "Locked source file is missing.",
       path: join(rootPath, "packs/essentials/commands/commit/COMMAND.md"),
+      severity: "error",
+    });
+  });
+
+  test("detects changed locked generated output files", async () => {
+    const rootPath = await createValidPackRepository();
+    const outputPath = join(rootPath, ".packs/opencode/opencode.json");
+    await mkdir(join(outputPath, ".."), { recursive: true });
+    await writeFile(outputPath, "{}\n");
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
+      { kind: "package", packageName: "opencode", path: outputPath, target: "opencode" },
+    ]);
+    await writePackLock(rootPath, lock);
+    await writeFile(outputPath, '{"changed":true}\n');
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual({
+      code: "output-drift",
+      message: "Locked generated output hash differs from current contents.",
+      path: outputPath,
       severity: "error",
     });
   });
@@ -323,7 +355,7 @@ outputs:
 
     expect(result.ok).toBe(false);
     expect(messages).toContain("Locked decision entries must be strings.");
-    expect(messages).toContain("Locked output entries must be strings.");
+    expect(messages).toContain("Locked output entries must be mappings.");
   });
 
   test("check rejects lockfile paths outside the repository", async () => {

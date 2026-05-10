@@ -4,10 +4,17 @@
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, parse, relative, resolve, sep } from "node:path";
 import { discoverPackRepository } from "./discovery";
+import {
+  readPackLock,
+  writePackGenerationLock,
+  type GeneratedOutput,
+  type LockedOutput,
+} from "./lockfile";
 import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 
 export const CODEX_DEFAULT_OUTPUT_DIRECTORY = join(".packs", "codex");
 export const CODEX_MARKETPLACE_FILE = join(".agents", "plugins", "marketplace.json");
+const PACKPORT_TOOL_VERSION = "0.0.0";
 
 export type GenerateCodexResult = {
   readonly diagnostics: readonly Diagnostic[];
@@ -98,9 +105,18 @@ export async function generateCodexOutput(
   const entries: CodexMarketplaceEntry[] = [];
   let agents = 0;
   let commands = 0;
+  let lockDecisions: readonly string[] = [];
+  let preservedOutputs: readonly LockedOutput[] = [];
   let marketplaceEntries = 0;
   let plugins = 0;
   let skills = 0;
+
+  if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    const lockResult = await readPackLock(rootPath);
+    diagnostics.push(...lockResult.diagnostics);
+    lockDecisions = lockResult.lock?.decisions ?? [];
+    preservedOutputs = lockResult.lock?.outputs ?? [];
+  }
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     for (const pack of discovery.index.packs) {
@@ -156,6 +172,16 @@ export async function generateCodexOutput(
     for (const operation of operations) {
       await executeWriteOperation(operation, files);
     }
+
+    await writePackGenerationLock(
+      rootPath,
+      discovery.index,
+      PACKPORT_TOOL_VERSION,
+      files.map((file) => codexGeneratedOutput(file, outputPath, marketplacePath)),
+      "codex",
+      lockDecisions,
+      preservedOutputs,
+    );
   }
 
   return {
@@ -172,6 +198,26 @@ export async function generateCodexOutput(
       plugins,
       skills,
     },
+  };
+}
+
+/** Converts a generated Codex file path into a structured lockfile output entry. */
+function codexGeneratedOutput(
+  path: string,
+  outputPath: string,
+  marketplacePath: string,
+): GeneratedOutput {
+  if (path === marketplacePath) {
+    return { kind: "marketplace", path, target: "codex" };
+  }
+
+  const [packageName] = relative(outputPath, path).split(sep);
+
+  return {
+    kind: "package",
+    ...(packageName ? { packageName } : {}),
+    path,
+    target: "codex",
   };
 }
 

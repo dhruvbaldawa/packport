@@ -4,6 +4,7 @@
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, parse, resolve } from "node:path";
 import { discoverPackRepository } from "./discovery";
+import { readPackLock, writePackGenerationLock, type LockedOutput } from "./lockfile";
 import type { AssetIndex, Diagnostic } from "./types";
 
 export type GenerateOpenCodeResult = {
@@ -33,6 +34,8 @@ type WriteOperation =
   | { readonly kind: "copy"; readonly sourcePath: string; readonly targetPath: string };
 
 const OPENCODE_SCHEMA = "https://opencode.ai/config.json";
+const OPENCODE_DEFAULT_OUTPUT_DIRECTORY = join(".packs", "opencode");
+const PACKPORT_TOOL_VERSION = "0.0.0";
 
 /** Generates repo-local OpenCode files under outputPath from portable pack source. */
 export async function generateOpenCodeOutput(
@@ -47,6 +50,17 @@ export async function generateOpenCodeOutput(
   let skills = 0;
   const generatedPaths = new Set<string>();
   const operations: WriteOperation[] = [];
+  let lockDecisions: readonly string[] = [];
+  let preservedOutputs: readonly LockedOutput[] = [];
+
+  diagnostics.push(...validateOpenCodeOutputRoot(rootPath, outputPath));
+
+  if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    const lockResult = await readPackLock(rootPath);
+    diagnostics.push(...lockResult.diagnostics);
+    lockDecisions = lockResult.lock?.decisions ?? [];
+    preservedOutputs = lockResult.lock?.outputs ?? [];
+  }
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     const configDiagnostic = await planOpenCodeConfig(outputPath, operations);
@@ -136,6 +150,21 @@ export async function generateOpenCodeOutput(
     for (const operation of operations) {
       await executeWriteOperation(operation, files);
     }
+
+    await writePackGenerationLock(
+      rootPath,
+      discovery.index,
+      PACKPORT_TOOL_VERSION,
+      files.map((file) => ({
+        kind: "package",
+        packageName: "opencode",
+        path: file,
+        target: "opencode",
+      })),
+      "opencode",
+      lockDecisions,
+      preservedOutputs,
+    );
   }
 
   return {
@@ -145,6 +174,24 @@ export async function generateOpenCodeOutput(
     rootPath,
     summary: { agents, commands, files: files.length, skills },
   };
+}
+
+/** Ensures generated OpenCode outputs are repo-owned and lockfile-trackable. */
+function validateOpenCodeOutputRoot(rootPath: string, outputPath: string): Diagnostic[] {
+  const expectedPath = resolve(rootPath, OPENCODE_DEFAULT_OUTPUT_DIRECTORY);
+
+  if (resolve(outputPath) === expectedPath) {
+    return [];
+  }
+
+  return [
+    {
+      code: "invalid-opencode-output-root",
+      message: `OpenCode output must be written to ${OPENCODE_DEFAULT_OUTPUT_DIRECTORY} under the pack repository.`,
+      path: outputPath,
+      severity: "error",
+    },
+  ];
 }
 
 /** Plans a minimal repo-local OpenCode config while preserving existing unmanaged keys. */

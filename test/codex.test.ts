@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { CODEX_MARKETPLACE_FILE, generateCodexOutput } from "../src/core/codex";
+import { discoverPackRepository } from "../src/core/discovery";
+import { createPackLock, readPackLock, writePackLock } from "../src/core/lockfile";
 
 describe("generateCodexOutput", () => {
   test("generates Codex plugins and marketplace entries", async () => {
@@ -44,6 +46,7 @@ payload: SKILL.md
     });
 
     const result = await generateCodexOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
 
     expect(result.diagnostics).toEqual([]);
     expect(result.summary).toEqual({
@@ -121,6 +124,59 @@ payload: SKILL.md
         },
       ],
     });
+    expect(lockResult.diagnostics).toEqual([]);
+    const lockedOutputs = lockResult.lock?.outputs ?? [];
+    expect(lockedOutputs.every((output) => /^[a-f0-9]{64}$/.test(output.hash))).toBe(true);
+    expect(
+      lockedOutputs.map((output) => ({
+        kind: output.kind,
+        ...(output.packageName ? { packageName: output.packageName } : {}),
+        path: output.path,
+        target: output.target,
+      })),
+    ).toEqual([
+      {
+        kind: "marketplace",
+        path: ".agents/plugins/marketplace.json",
+        target: "codex",
+      },
+      {
+        kind: "package",
+        packageName: "essentials",
+        path: ".packs/codex/essentials/.codex-plugin/plugin.json",
+        target: "codex",
+      },
+      {
+        kind: "package",
+        packageName: "essentials",
+        path: ".packs/codex/essentials/agents/reviewer.md",
+        target: "codex",
+      },
+      {
+        kind: "package",
+        packageName: "essentials",
+        path: ".packs/codex/essentials/skills/debugging/reference/examples.md",
+        target: "codex",
+      },
+      {
+        kind: "package",
+        packageName: "essentials",
+        path: ".packs/codex/essentials/skills/debugging/SKILL.md",
+        target: "codex",
+      },
+      {
+        kind: "package",
+        packageName: "essentials",
+        path: ".packs/codex/essentials/skills/plan/examples.md",
+        target: "codex",
+      },
+      {
+        kind: "package",
+        packageName: "essentials",
+        path: ".packs/codex/essentials/skills/plan/SKILL.md",
+        target: "codex",
+      },
+    ]);
     await expect(lstat(join(outputPath, "essentials/skills/debugging/ASSET.md"))).rejects.toThrow();
   });
 
@@ -197,6 +253,68 @@ description: Core workflows.
         },
       ],
     });
+  });
+
+  test("preserves accepted lockfile decisions while updating generated Codex outputs", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(
+      rootPath,
+      discovery.index,
+      "0.0.0",
+      [],
+      ["codex-command-as-skill:essentials/command/plan"],
+    );
+    await writePackLock(rootPath, lock);
+
+    const result = await generateCodexOutput(rootPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(lockResult.lock?.decisions).toEqual(["codex-command-as-skill:essentials/command/plan"]);
+    expect(lockResult.lock?.outputs.map((output) => output.path)).toContain(
+      ".packs/codex/essentials/skills/plan/SKILL.md",
+    );
+  });
+
+  test("preserves other target output records while updating Codex outputs", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const opencodeOutputPath = join(rootPath, ".packs/opencode/opencode.json");
+    await writeFileTree(rootPath, {
+      ".packs/opencode/opencode.json": "{}\n",
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+    });
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
+      { kind: "package", packageName: "opencode", path: opencodeOutputPath, target: "opencode" },
+    ]);
+    await writePackLock(rootPath, lock);
+
+    const result = await generateCodexOutput(rootPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(lockResult.lock?.outputs.map((output) => output.path)).toContain(
+      ".packs/opencode/opencode.json",
+    );
+    expect(lockResult.lock?.outputs.map((output) => output.path)).toContain(
+      ".packs/codex/essentials/skills/debugging/SKILL.md",
+    );
   });
 
   test("replaces unsafe existing marketplace entries for regenerated packs", async () => {
@@ -284,6 +402,28 @@ description: Core workflows.
     const result = await generateCodexOutput(rootPath);
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("missing-pack-file");
+    await expect(lstat(join(rootPath, ".packs/codex/essentials"))).rejects.toThrow();
+    await expect(lstat(join(rootPath, CODEX_MARKETPLACE_FILE))).rejects.toThrow();
+  });
+
+  test("does not write Codex output when the existing lockfile is invalid", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    await writeFileTree(rootPath, {
+      "pack.lock.yaml": "lockfileVersion: [\n",
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+    });
+
+    const result = await generateCodexOutput(rootPath);
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "invalid-lockfile-yaml",
+    );
     await expect(lstat(join(rootPath, ".packs/codex/essentials"))).rejects.toThrow();
     await expect(lstat(join(rootPath, CODEX_MARKETPLACE_FILE))).rejects.toThrow();
   });

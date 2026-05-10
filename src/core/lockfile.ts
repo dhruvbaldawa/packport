@@ -28,11 +28,30 @@ export type LockedSource = {
   readonly path: string;
 };
 
+export type GeneratedOutput = {
+  readonly kind: "marketplace" | "package";
+  readonly packageName?: string;
+  readonly path: string;
+  readonly target: string;
+};
+
+export type PreservedOutput = GeneratedOutput & {
+  readonly hash: string;
+};
+
+export type LockedOutput = {
+  readonly hash: string;
+  readonly kind: "marketplace" | "package";
+  readonly packageName?: string;
+  readonly path: string;
+  readonly target: string;
+};
+
 export type PackLock = {
   readonly assets: readonly LockedAsset[];
   readonly decisions: readonly string[];
   readonly lockfileVersion: 1;
-  readonly outputs: readonly string[];
+  readonly outputs: readonly LockedOutput[];
   readonly packs: readonly LockedPack[];
   readonly tool: {
     readonly name: "packport";
@@ -50,6 +69,8 @@ export async function createPackLock(
   rootPath: string,
   index: PackRepositoryIndex,
   toolVersion: string,
+  outputs: readonly (GeneratedOutput | PreservedOutput)[] = [],
+  decisions: readonly string[] = [],
 ): Promise<PackLock> {
   const packs = await Promise.all(
     index.packs.map(async (pack) => ({
@@ -84,12 +105,33 @@ export async function createPackLock(
 
   return {
     assets,
-    decisions: [],
+    decisions,
     lockfileVersion: 1,
-    outputs: [],
+    outputs: await lockGeneratedOutputs(rootPath, outputs),
     packs,
     tool: { name: "packport", version: toolVersion },
   };
+}
+
+/** Regenerates and writes pack.lock.yaml after a successful target generation run. */
+export async function writePackGenerationLock(
+  rootPath: string,
+  index: PackRepositoryIndex,
+  toolVersion: string,
+  outputs: readonly GeneratedOutput[],
+  target: string,
+  decisions: readonly string[] = [],
+  previousOutputs: readonly LockedOutput[] = [],
+): Promise<PackLock> {
+  const lock = await createPackLock(
+    rootPath,
+    index,
+    toolVersion,
+    [...previousOutputs.filter((output) => output.target !== target), ...outputs],
+    decisions,
+  );
+  await writePackLock(rootPath, lock);
+  return lock;
 }
 
 /** Reports source files that changed, disappeared, or are not tracked by the lockfile. */
@@ -124,6 +166,35 @@ export async function detectLockDrift(
       diagnostics.push({
         code: "source-drift",
         message: "Locked source file hash differs from current contents.",
+        path: absolutePath,
+        severity: "error",
+      });
+    }
+  }
+
+  for (const output of lock.outputs) {
+    const absolutePath = join(rootPath, output.path);
+    const outputState = await tryHashLockedPath(rootPath, output.path, "output");
+
+    if (outputState.diagnostic) {
+      diagnostics.push(outputState.diagnostic);
+      continue;
+    }
+
+    if (outputState.hash === undefined) {
+      diagnostics.push({
+        code: "missing-locked-output",
+        message: "Locked generated output file is missing.",
+        path: absolutePath,
+        severity: "error",
+      });
+      continue;
+    }
+
+    if (outputState.hash !== output.hash) {
+      diagnostics.push({
+        code: "output-drift",
+        message: "Locked generated output hash differs from current contents.",
         path: absolutePath,
         severity: "error",
       });
@@ -188,7 +259,7 @@ async function hashFile(path: string): Promise<string> {
 /** Hashes a source path only after enforcing the same safety checks used for drift. */
 async function hashSourceFile(rootPath: string, path: string): Promise<string> {
   const relativeSourcePath = relativePath(rootPath, path);
-  const sourceState = await tryHashLockedSource(rootPath, relativeSourcePath);
+  const sourceState = await tryHashLockedPath(rootPath, relativeSourcePath, "source");
 
   if (sourceState.hash) {
     return sourceState.hash;
@@ -209,13 +280,24 @@ async function tryHashLockedSource(
   rootPath: string,
   sourcePath: string,
 ): Promise<LockedSourceState> {
-  const path = join(rootPath, sourcePath);
+  return await tryHashLockedPath(rootPath, sourcePath, "source");
+}
 
-  if (!isValidLockPath(sourcePath)) {
+/** Attempts to hash one locked path, converting unsafe or unreadable paths to diagnostics. */
+async function tryHashLockedPath(
+  rootPath: string,
+  lockPath: string,
+  kind: "output" | "source",
+): Promise<LockedSourceState> {
+  const path = join(rootPath, lockPath);
+  const label = kind === "source" ? "source" : "generated output";
+  const code = kind === "source" ? "invalid-locked-source" : "invalid-locked-output";
+
+  if (!isValidLockPath(lockPath)) {
     return {
       diagnostic: {
-        code: "invalid-locked-source",
-        message: "Locked source path must be relative and stay inside the repository.",
+        code,
+        message: `Locked ${label} path must be relative and stay inside the repository.`,
         path,
         severity: "error",
       },
@@ -223,13 +305,13 @@ async function tryHashLockedSource(
   }
 
   try {
-    const stats = await lstatSourcePath(rootPath, sourcePath);
+    const stats = await lstatSourcePath(rootPath, lockPath);
 
     if (!stats.isFile()) {
       return {
         diagnostic: {
-          code: "invalid-locked-source",
-          message: "Locked source path must be a regular file.",
+          code,
+          message: `Locked ${label} path must be a regular file.`,
           path,
           severity: "error",
         },
@@ -241,8 +323,8 @@ async function tryHashLockedSource(
     if (error instanceof SymlinkSourceError) {
       return {
         diagnostic: {
-          code: "invalid-locked-source",
-          message: "Locked source path must not contain symlinks.",
+          code,
+          message: `Locked ${label} path must not contain symlinks.`,
           path: error.path,
           severity: "error",
         },
@@ -255,13 +337,51 @@ async function tryHashLockedSource(
 
     return {
       diagnostic: {
-        code: "unreadable-locked-source",
-        message: error instanceof Error ? error.message : "Could not read locked source file.",
+        code: kind === "source" ? "unreadable-locked-source" : "unreadable-locked-output",
+        message:
+          error instanceof Error
+            ? error.message
+            : `Could not read locked ${kind === "source" ? "source" : "generated output"} file.`,
         path,
         severity: "error",
       },
     };
   }
+}
+
+/** Hashes generated outputs that are inside the repository and safe to record. */
+async function lockGeneratedOutputs(
+  rootPath: string,
+  outputs: readonly (GeneratedOutput | PreservedOutput)[],
+): Promise<LockedOutput[]> {
+  const lockedOutputs: LockedOutput[] = [];
+
+  for (const output of outputs) {
+    const path = "hash" in output ? output.path : relativePath(rootPath, output.path);
+
+    if (!isValidLockPath(path)) {
+      throw new Error(`Generated output path must stay inside the repository: ${output.path}`);
+    }
+
+    const hash = "hash" in output ? output.hash : undefined;
+    const state = hash === undefined ? await tryHashLockedPath(rootPath, path, "output") : { hash };
+
+    if (!state.hash) {
+      throw new Error(
+        state.diagnostic?.message ?? `Cannot hash unsafe or missing generated output: ${path}`,
+      );
+    }
+
+    lockedOutputs.push({
+      hash: state.hash,
+      kind: output.kind,
+      ...(output.packageName ? { packageName: output.packageName } : {}),
+      path,
+      target: output.target,
+    });
+  }
+
+  return lockedOutputs.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 /** Lstats every component of a locked source path so symlink traversal cannot escape root. */
@@ -372,7 +492,7 @@ function validatePackLock(value: unknown, path: string): PackLockReadResult {
     ? decisions.flatMap((decision) => validateStringEntry(decision, path, diagnostics, "decision"))
     : [];
   const lockedOutputs = Array.isArray(outputs)
-    ? outputs.flatMap((output) => validateStringEntry(output, path, diagnostics, "output"))
+    ? outputs.flatMap((output) => validateLockedOutput(output, path, diagnostics))
     : [];
 
   if (diagnostics.length > 0) {
@@ -390,6 +510,39 @@ function validatePackLock(value: unknown, path: string): PackLockReadResult {
       tool: { name: "packport", version: (tool as { version: string }).version },
     },
   };
+}
+
+/** Validates one generated output entry from a parsed lockfile. */
+function validateLockedOutput(
+  value: unknown,
+  lockPath: string,
+  diagnostics: Diagnostic[],
+): LockedOutput[] {
+  if (!isRecord(value)) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked output entries must be mappings."));
+    return [];
+  }
+
+  if (
+    typeof value.hash !== "string" ||
+    !isValidLockPath(value.path) ||
+    (value.kind !== "marketplace" && value.kind !== "package") ||
+    typeof value.target !== "string" ||
+    (value.packageName !== undefined && typeof value.packageName !== "string")
+  ) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked output entry is invalid."));
+    return [];
+  }
+
+  return [
+    {
+      hash: value.hash,
+      kind: value.kind,
+      ...(value.packageName ? { packageName: value.packageName } : {}),
+      path: value.path,
+      target: value.target,
+    },
+  ];
 }
 
 /** Validates one pack entry from a parsed lockfile. */

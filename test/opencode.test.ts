@@ -5,12 +5,14 @@ import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { createPackLock, readPackLock, writePackLock } from "../src/core/lockfile";
+import { discoverPackRepository } from "../src/core/discovery";
 import { generateOpenCodeOutput } from "../src/core/opencode";
 
 describe("generateOpenCodeOutput", () => {
   test("generates repo-local OpenCode commands, agents, and skills", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
 name: Essentials
@@ -85,7 +87,7 @@ payload: SKILL.md
 
   test("normalizes Claude triple-brace command arguments without portable-ref diagnostics", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
 name: Essentials
@@ -104,7 +106,117 @@ description: Core workflows.
     );
   });
 
-  test("preserves existing OpenCode config keys", async () => {
+  test("updates pack.lock.yaml with generated OpenCode outputs under the repo root", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(lockResult.diagnostics).toEqual([]);
+    expect(lockResult.lock?.outputs.map((output) => output.path)).toEqual([
+      ".packs/opencode/.opencode/commands/plan.md",
+      ".packs/opencode/opencode.json",
+    ]);
+    expect(lockResult.lock?.outputs.every((output) => output.target === "opencode")).toBe(true);
+  });
+
+  test("preserves accepted lockfile decisions while updating generated OpenCode outputs", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(
+      rootPath,
+      discovery.index,
+      "0.0.0",
+      [],
+      ["codex-command-as-skill:essentials/command/plan"],
+    );
+    await writePackLock(rootPath, lock);
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(lockResult.lock?.decisions).toEqual(["codex-command-as-skill:essentials/command/plan"]);
+    expect(lockResult.lock?.outputs.map((output) => output.path)).toContain(
+      ".packs/opencode/.opencode/commands/plan.md",
+    );
+  });
+
+  test("preserves other target output records while updating OpenCode outputs", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    const codexOutputPath = join(rootPath, ".packs/codex/essentials/skills/plan/SKILL.md");
+    await writeFileTree(rootPath, {
+      ".packs/codex/essentials/skills/plan/SKILL.md": "# Existing Codex output\n",
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
+      { kind: "package", packageName: "essentials", path: codexOutputPath, target: "codex" },
+    ]);
+    await writePackLock(rootPath, lock);
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(lockResult.lock?.outputs.map((output) => output.path)).toEqual([
+      ".packs/codex/essentials/skills/plan/SKILL.md",
+      ".packs/opencode/.opencode/commands/plan.md",
+      ".packs/opencode/opencode.json",
+    ]);
+  });
+
+  test("does not write OpenCode output when the existing lockfile is invalid", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "pack.lock.yaml": "lockfileVersion: [\n",
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "invalid-lockfile-yaml",
+    );
+    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
+  });
+
+  test("rejects OpenCode output roots outside repo-local .packs", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = await createTempRepository("packport-opencode-output-");
     await writeFileTree(rootPath, {
@@ -116,6 +228,31 @@ description: Core workflows.
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-opencode-output-root",
+      message: "OpenCode output must be written to .packs/opencode under the pack repository.",
+      path: outputPath,
+      severity: "error",
+    });
+    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
+  });
+
+  test("preserves existing OpenCode config keys", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    await mkdir(outputPath, { recursive: true });
     await writeFile(join(outputPath, "opencode.json"), `${JSON.stringify({ theme: "system" })}\n`);
 
     await generateOpenCodeOutput(rootPath, outputPath);
@@ -128,7 +265,7 @@ description: Core workflows.
 
   test("writes OpenCode SKILL.md from a nonstandard packport skill payload", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
 name: Essentials
@@ -166,7 +303,7 @@ payload: README.md
 
   test("does not write output when pack discovery has errors", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     await mkdir(join(rootPath, "packs/essentials/commands/plan"), { recursive: true });
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
@@ -177,7 +314,7 @@ payload: README.md
 
   test("does not overwrite malformed existing OpenCode config", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
 name: Essentials
@@ -187,6 +324,7 @@ description: Core workflows.
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
+    await mkdir(outputPath, { recursive: true });
     await writeFile(join(outputPath, "opencode.json"), "{\n");
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
@@ -200,7 +338,7 @@ description: Core workflows.
 
   test("refuses symlinked existing OpenCode config paths", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     const outsidePath = await createTempRepository("packport-opencode-outside-");
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
@@ -212,6 +350,7 @@ description: Core workflows.
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
     await writeFile(join(outsidePath, "opencode.json"), "{}\n");
+    await mkdir(outputPath, { recursive: true });
     await symlink(join(outsidePath, "opencode.json"), join(outputPath, "opencode.json"));
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
@@ -225,7 +364,7 @@ description: Core workflows.
 
   test("refuses symlinked generated OpenCode target directories", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     const outsidePath = await createTempRepository("packport-opencode-outside-");
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
@@ -236,6 +375,7 @@ description: Core workflows.
 `,
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
+    await mkdir(outputPath, { recursive: true });
     await symlink(outsidePath, join(outputPath, ".opencode"));
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
@@ -249,7 +389,7 @@ description: Core workflows.
 
   test("reports target collisions without writing partial output", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     await writeFileTree(rootPath, {
       "packs/a/PACK.md": `---
 name: A
@@ -279,7 +419,7 @@ description: Second pack.
 
   test("reports invalid OpenCode skill names without writing them", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
 name: Essentials
@@ -302,7 +442,7 @@ description: Core workflows.
 
   test("reports too-long OpenCode skill names without writing them", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
-    const outputPath = await createTempRepository("packport-opencode-output-");
+    const outputPath = join(rootPath, ".packs/opencode");
     const longName = "a".repeat(65);
     await writeFileTree(rootPath, {
       "packs/essentials/PACK.md": `---
