@@ -61,6 +61,19 @@ files, and writes the result to `.materialized/codex/essentials`.
 
 The output path must not be the generated package path or inside it.
 
+## Check An Overlay
+
+```bash
+bun src/cli.ts configport check .configport .packs/codex/essentials .materialized/codex/essentials \
+  --profile personal \
+  --target codex \
+  --pack essentials
+```
+
+This recomputes the selected overlay result without writing files. It reports missing materialized
+files and output drift when the existing materialized tree no longer matches generated output plus
+the selected overlay.
+
 ## Materialize Instructions
 
 Store selected runtime instruction assets separately from generated package overlays:
@@ -104,5 +117,7 @@ configport rejects:
 - unsafe overlay file paths.
 - duplicate overlay file paths.
 - missing generated output.
+- missing materialized output during check.
+- materialized output drift during check.
 - symlinks in generated, state, or materialized output paths.
 - materialized output paths that collide with each other.

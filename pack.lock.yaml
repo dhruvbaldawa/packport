@@ -2,12 +2,12 @@ assets:
   - id: configport-control/skill/apply-pack
     kind: skill
     payloads:
-      - hash: 32093f8fc29840cc3261e59a2e1d178ffcbf2e4dd80b791070e3d5be28bf5343
+      - hash: a41ff716ac24dc772bb0dea506ff2b5ddbc13a597f3a73e85209b093ebf76d98
         path: packs/configport-control/skills/apply-pack/SKILL.md
   - id: configport-control/skill/configure-pack
     kind: skill
     payloads:
-      - hash: 0034d8c3492e6bfab8782eacab816d78f286f910af7e53bb21536fa90a4a1e64
+      - hash: ed79b2ce0c461191a2fdb5abd53878b90936112b8c3a81065aa816428b42fc88
         path: packs/configport-control/skills/configure-pack/SKILL.md
   - id: configport-control/skill/configure-tools
     kind: skill
@@ -66,12 +66,12 @@ outputs:
     packageName: configport
     path: .packs/claude/configport/.packport-control-plugin.json
     target: claude
-  - hash: 32093f8fc29840cc3261e59a2e1d178ffcbf2e4dd80b791070e3d5be28bf5343
+  - hash: a41ff716ac24dc772bb0dea506ff2b5ddbc13a597f3a73e85209b093ebf76d98
     kind: package
     packageName: configport
     path: .packs/claude/configport/skills/apply-pack/SKILL.md
     target: claude
-  - hash: 0034d8c3492e6bfab8782eacab816d78f286f910af7e53bb21536fa90a4a1e64
+  - hash: ed79b2ce0c461191a2fdb5abd53878b90936112b8c3a81065aa816428b42fc88
     kind: package
     packageName: configport
     path: .packs/claude/configport/skills/configure-pack/SKILL.md
@@ -126,12 +126,12 @@ outputs:
     packageName: configport-control
     path: .packs/codex/configport-control/.codex-plugin/plugin.json
     target: codex
-  - hash: 6d9767cc1cb8c68b248fba4801f60346ce0614e634c092ff2f6e162afd3d85ed
+  - hash: 1283aa26c6c68f5114b94f7af758e0ced1a3dee237ebed7634136e8216c99d01
     kind: package
     packageName: configport-control
     path: .packs/codex/configport-control/skills/apply-pack/SKILL.md
     target: codex
-  - hash: 3d68b8db90794b1d2078acb7eeeab27fa3777e2b219fce7dae0ec71dfe97f16d
+  - hash: c080e852c0034f8a93b7687230cbc84f394ed19d1e458630f067b1403e7ee227
     kind: package
     packageName: configport-control
     path: .packs/codex/configport-control/skills/configure-pack/SKILL.md
@@ -181,7 +181,7 @@ outputs:
     packageName: opencode
     path: .packs/opencode/.opencode/skills/add-harness/SKILL.md
     target: opencode
-  - hash: 6d9767cc1cb8c68b248fba4801f60346ce0614e634c092ff2f6e162afd3d85ed
+  - hash: 1283aa26c6c68f5114b94f7af758e0ced1a3dee237ebed7634136e8216c99d01
     kind: package
     packageName: opencode
     path: .packs/opencode/.opencode/skills/apply-pack/SKILL.md
@@ -196,7 +196,7 @@ outputs:
     packageName: opencode
     path: .packs/opencode/.opencode/skills/check-pack/SKILL.md
     target: opencode
-  - hash: 3d68b8db90794b1d2078acb7eeeab27fa3777e2b219fce7dae0ec71dfe97f16d
+  - hash: c080e852c0034f8a93b7687230cbc84f394ed19d1e458630f067b1403e7ee227
     kind: package
     packageName: opencode
     path: .packs/opencode/.opencode/skills/configure-pack/SKILL.md

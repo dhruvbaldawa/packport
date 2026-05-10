@@ -20,6 +20,7 @@ export {
 export { checkPackRepository, formatDiagnostics } from "./core/check";
 export {
   applyConfigportOverlay,
+  checkConfigportOverlay,
   CONFIGPORT_STATE_FILE,
   formatConfigportDiagnostics,
   materializeConfigportInstructions,
@@ -87,6 +88,7 @@ export type { GenerateCodexOptions, GenerateCodexResult } from "./core/codex";
 export type {
   ApplyConfigportOverlayOptions,
   ApplyConfigportOverlayResult,
+  CheckConfigportOverlayResult,
   ConfigportFileOverlay,
   ConfigportInstructionScope,
   ConfigportInstructionSelection,

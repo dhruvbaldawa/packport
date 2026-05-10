@@ -74,7 +74,7 @@ describe("runCli", () => {
   const codexUsage =
     "Usage: packport codex generate <pack-root> [output-root] [--include-control-packs]";
   const configportUsage =
-    "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
+    "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport check <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
 
   test("runs check and returns stdout", async () => {
     const rootPath = await createValidPackRepository();
@@ -567,6 +567,46 @@ describe("runCli", () => {
     expect(await readFile(join(outputPath, ".opencode/local.conf"), "utf8")).toBe(
       "theme = system\n",
     );
+
+    const cleanCheckResult = await runCli([
+      "configport",
+      "check",
+      stateRootPath,
+      generatedPath,
+      outputPath,
+      "--profile",
+      "personal",
+      "--target",
+      "opencode",
+      "--pack",
+      "todoist",
+    ]);
+
+    expect(cleanCheckResult).toEqual({
+      exitCode: 0,
+      stdout: `Checked configport overlay personal/opencode/todoist at ${outputPath} with 2 file(s).`,
+    });
+
+    await writeFile(join(outputPath, "commands/search/COMMAND.md"), "manual edit\n");
+    const driftCheckResult = await runCli([
+      "configport",
+      "check",
+      stateRootPath,
+      generatedPath,
+      outputPath,
+      "--profile",
+      "personal",
+      "--target",
+      "opencode",
+      "--pack",
+      "todoist",
+    ]);
+
+    expect(driftCheckResult.exitCode).toBe(1);
+    expect(driftCheckResult.stdout).toContain(
+      `Checked configport overlay personal/opencode/todoist at ${outputPath} with 2 file(s).`,
+    );
+    expect(driftCheckResult.stdout).toContain("ERROR configport-output-drift");
   });
 
   test("stores and materializes configport instruction selections", async () => {

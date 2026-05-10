@@ -139,6 +139,18 @@ packport configport apply <state-root> <generated> <output> \
 Copies generated output to a materialized output tree, applies replacements, and adds overlay
 files for the selected overlay.
 
+## configport check
+
+```bash
+packport configport check <state-root> <generated> <output> \
+  --profile <profile> \
+  --target <target> \
+  --pack <pack>
+```
+
+Checks the materialized output tree without writing files. Reports missing files and drift from the
+expected generated output plus selected overlay.
+
 ## configport instructions put
 
 ```bash

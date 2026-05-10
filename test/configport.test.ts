@@ -1,12 +1,13 @@
 // ABOUTME: Verifies configport profile overlays and materialized output application.
 // ABOUTME: Keeps local replacements and overlay files outside portable pack source.
 
-import { lstat, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   applyConfigportOverlay,
+  checkConfigportOverlay,
   CONFIGPORT_STATE_FILE,
   materializeConfigportInstructions,
   readConfigportState,
@@ -73,6 +74,108 @@ describe("configport overlays", () => {
     expect(await readFile(join(outputPath, ".opencode/local.conf"), "utf8")).toBe(
       "theme = system\n",
     );
+  });
+
+  test("checks materialized overlay drift without rewriting output", async () => {
+    const stateRootPath = await createTempDirectory("configport-state-");
+    const generatedPath = await createTempDirectory("configport-generated-");
+    const outputPath = await createTempDirectory("configport-output-");
+    await writeFileTree(generatedPath, {
+      "commands/search/COMMAND.md": "Dhruv searches Todoist.\n",
+    });
+    await writeConfigportOverlay(stateRootPath, {
+      files: [{ content: "theme = system\n", path: ".opencode/local.conf" }],
+      pack: "todoist",
+      profile: "personal",
+      replacements: [{ from: "Dhruv", to: "Avery" }],
+      target: "opencode",
+    });
+    await applyConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+
+    const cleanResult = await checkConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+
+    expect(cleanResult.diagnostics).toEqual([]);
+    expect(cleanResult.summary).toEqual({ files: 2, overlays: 1, replacements: 1 });
+
+    await writeFile(join(outputPath, "commands/search/COMMAND.md"), "manual edit\n");
+    const driftResult = await checkConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+
+    expect(driftResult.diagnostics).toContainEqual({
+      code: "configport-output-drift",
+      message: "Materialized configport output differs from the expected overlay result.",
+      path: join(outputPath, "commands/search/COMMAND.md"),
+      severity: "error",
+    });
+    expect(await readFile(join(outputPath, "commands/search/COMMAND.md"), "utf8")).toBe(
+      "manual edit\n",
+    );
+
+    await rm(join(outputPath, ".opencode/local.conf"));
+    const missingResult = await checkConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+
+    expect(missingResult.diagnostics.map((diagnostic) => diagnostic.code)).toEqual([
+      "configport-output-drift",
+      "missing-configport-output",
+    ]);
+  });
+
+  test("checks invalid outputs without hiding sibling diagnostics", async () => {
+    const stateRootPath = await createTempDirectory("configport-state-");
+    const generatedPath = await createTempDirectory("configport-generated-");
+    const outputPath = await createTempDirectory("configport-output-");
+    await writeFileTree(generatedPath, {
+      "commands/list/COMMAND.md": "List Todoist tasks.\n",
+      "commands/search/COMMAND.md": "Search Todoist tasks.\n",
+    });
+    await mkdir(join(outputPath, "commands/search/COMMAND.md"), { recursive: true });
+
+    const result = await checkConfigportOverlay({
+      generatedPath,
+      outputPath,
+      pack: "todoist",
+      profile: "personal",
+      stateRootPath,
+      target: "opencode",
+    });
+    const codes = result.diagnostics.map((diagnostic) => diagnostic.code);
+
+    expect(codes).toContain("invalid-configport-output");
+    expect(codes).toContain("missing-configport-output");
+    expect(codes).not.toContain("unwritable-configport-output-path");
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-configport-output",
+      message: "Materialized configport output path must be a regular file.",
+      path: join(outputPath, "commands/search/COMMAND.md"),
+      severity: "error",
+    });
   });
 
   test("keeps overlays isolated by profile target and pack", async () => {

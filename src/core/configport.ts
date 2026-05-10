@@ -103,6 +103,8 @@ export type ApplyConfigportOverlayResult = {
   };
 };
 
+export type CheckConfigportOverlayResult = ApplyConfigportOverlayResult;
+
 type ReadConfigportStateResult =
   | { readonly state: ConfigportState; readonly status: "ok" }
   | {
@@ -114,6 +116,16 @@ type ReadConfigportStateResult =
 type PlannedWrite = {
   readonly content: string;
   readonly path: string;
+};
+
+type PlannedConfigportOverlay = {
+  readonly diagnostics: readonly Diagnostic[];
+  readonly overlay?: ConfigportOverlay;
+  readonly writes: readonly PlannedWrite[];
+};
+
+type PlanConfigportOverlayOptions = {
+  readonly checkWritablePaths: boolean;
 };
 
 const CONFIG_REF_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*)*$/;
@@ -277,6 +289,73 @@ export async function writeConfigportInstructionSelection(
 export async function applyConfigportOverlay(
   options: ApplyConfigportOverlayOptions,
 ): Promise<ApplyConfigportOverlayResult> {
+  const plan = await planConfigportOverlay(options, { checkWritablePaths: true });
+  const files: string[] = [];
+
+  if (!hasError(plan.diagnostics)) {
+    for (const write of plan.writes) {
+      await writeMaterializedFile(write.path, write.content);
+      files.push(write.path);
+    }
+  }
+
+  return {
+    diagnostics: plan.diagnostics,
+    files,
+    outputPath: options.outputPath,
+    summary: {
+      files: files.length,
+      overlays: plan.overlay ? 1 : 0,
+      replacements: plan.overlay?.replacements.length ?? 0,
+    },
+  };
+}
+
+/** Checks whether materialized output matches generated pack output plus local overlay state. */
+export async function checkConfigportOverlay(
+  options: ApplyConfigportOverlayOptions,
+): Promise<CheckConfigportOverlayResult> {
+  const plan = await planConfigportOverlay(options, { checkWritablePaths: false });
+  const diagnostics = [...plan.diagnostics];
+  const files: string[] = [];
+
+  if (!hasError(diagnostics)) {
+    for (const write of plan.writes) {
+      const currentContent = await readMaterializedFileForCheck(write.path, diagnostics);
+
+      if (currentContent === undefined) {
+        continue;
+      }
+
+      files.push(write.path);
+
+      if (currentContent !== write.content) {
+        diagnostics.push({
+          code: "configport-output-drift",
+          message: "Materialized configport output differs from the expected overlay result.",
+          path: write.path,
+          severity: "error",
+        });
+      }
+    }
+  }
+
+  return {
+    diagnostics,
+    files,
+    outputPath: options.outputPath,
+    summary: {
+      files: plan.writes.length,
+      overlays: plan.overlay ? 1 : 0,
+      replacements: plan.overlay?.replacements.length ?? 0,
+    },
+  };
+}
+
+async function planConfigportOverlay(
+  options: ApplyConfigportOverlayOptions,
+  planOptions: PlanConfigportOverlayOptions,
+): Promise<PlannedConfigportOverlay> {
   const diagnostics: Diagnostic[] = [];
   const stateResult = await readConfigportState(options.stateRootPath);
 
@@ -319,27 +398,13 @@ export async function applyConfigportOverlay(
       });
     }
 
-    diagnostics.push(...(await validatePlannedWrites(writes)));
-  }
-
-  const files: string[] = [];
-
-  if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    for (const write of writes) {
-      await writeMaterializedFile(write.path, write.content);
-      files.push(write.path);
-    }
+    diagnostics.push(...(await validatePlannedWrites(writes, planOptions)));
   }
 
   return {
     diagnostics,
-    files,
-    outputPath: options.outputPath,
-    summary: {
-      files: files.length,
-      overlays: overlay ? 1 : 0,
-      replacements: overlay?.replacements.length ?? 0,
-    },
+    ...(overlay ? { overlay } : {}),
+    writes,
   };
 }
 
@@ -468,6 +533,10 @@ function configportStatePath(stateRootPath: string): string {
 
 function emptyConfigportState(): ConfigportState {
   return { instructionSelections: [], overlays: [], stateVersion: 1 };
+}
+
+function hasError(diagnostics: readonly Diagnostic[]): boolean {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error");
 }
 
 function normalizeOverlay(overlay: ConfigportOverlay): ConfigportOverlay {
@@ -1094,7 +1163,10 @@ function applyReplacements(
   return nextContent;
 }
 
-async function validatePlannedWrites(writes: readonly PlannedWrite[]): Promise<Diagnostic[]> {
+async function validatePlannedWrites(
+  writes: readonly PlannedWrite[],
+  options: PlanConfigportOverlayOptions = { checkWritablePaths: true },
+): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
   const paths = new Set<string>();
   const absolutePaths: string[] = [];
@@ -1130,20 +1202,22 @@ async function validatePlannedWrites(writes: readonly PlannedWrite[]): Promise<D
     paths.add(absolutePath);
     absolutePaths.push(absolutePath);
 
-    try {
-      await assertWritableFilePath(write.path);
-    } catch (error) {
-      diagnostics.push({
-        code: isSymlinkPathError(error)
-          ? "unsafe-configport-output-path"
-          : "unwritable-configport-output-path",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Materialized configport output path could not be validated.",
-        path: write.path,
-        severity: "error",
-      });
+    if (options.checkWritablePaths) {
+      try {
+        await assertWritableFilePath(write.path);
+      } catch (error) {
+        diagnostics.push({
+          code: isSymlinkPathError(error)
+            ? "unsafe-configport-output-path"
+            : "unwritable-configport-output-path",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Materialized configport output path could not be validated.",
+          path: write.path,
+          severity: "error",
+        });
+      }
     }
   }
 
@@ -1155,6 +1229,51 @@ async function writeMaterializedFile(path: string, content: string): Promise<voi
   await mkdir(dirname(path), { recursive: true });
   await assertWritableFilePath(path);
   await writeFile(path, content, "utf8");
+}
+
+async function readMaterializedFileForCheck(
+  path: string,
+  diagnostics: Diagnostic[],
+): Promise<string | undefined> {
+  try {
+    await assertPathDoesNotContainSymlinks(path);
+    const stats = await lstat(path);
+
+    if (!stats.isFile()) {
+      diagnostics.push({
+        code: "invalid-configport-output",
+        message: "Materialized configport output path must be a regular file.",
+        path,
+        severity: "error",
+      });
+      return undefined;
+    }
+
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      diagnostics.push({
+        code: "missing-configport-output",
+        message: "Materialized configport output file is missing.",
+        path,
+        severity: "error",
+      });
+      return undefined;
+    }
+
+    diagnostics.push({
+      code: isSymlinkPathError(error)
+        ? "unsafe-configport-output-path"
+        : "unreadable-configport-output",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Materialized configport output could not be read.",
+      path,
+      severity: "error",
+    });
+    return undefined;
+  }
 }
 
 async function assertWritableFilePath(path: string): Promise<void> {

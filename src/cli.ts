@@ -14,6 +14,7 @@ import { checkPackRepository, formatDiagnostics } from "./core/check";
 import { generateCodexOutput, formatCodexDiagnostics } from "./core/codex";
 import {
   applyConfigportOverlay,
+  checkConfigportOverlay,
   formatConfigportDiagnostics,
   materializeConfigportInstructions,
   writeConfigportInstructionSelection,
@@ -42,7 +43,7 @@ const OPENCODE_USAGE =
 const CODEX_USAGE =
   "Usage: packport codex generate <pack-root> [output-root] [--include-control-packs]";
 const CONFIGPORT_USAGE =
-  "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
+  "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport check <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
 
 type ParsedClaudeMigrationArgs =
   | {
@@ -354,7 +355,7 @@ async function runConfigportCli(args: readonly string[]): Promise<CliResult> {
   }
 
   if (subcommand === "apply") {
-    const parsed = parseConfigportApplyArgs(args.slice(1));
+    const parsed = parseConfigportApplyArgs(args.slice(1), "apply");
 
     if (parsed.status === "error") {
       return { exitCode: 1, stderr: `${parsed.message}\n${CONFIGPORT_USAGE}` };
@@ -368,6 +369,24 @@ async function runConfigportCli(args: readonly string[]): Promise<CliResult> {
     return {
       exitCode: ok ? 0 : 1,
       stdout: result.diagnostics.length > 0 ? diagnostics : summary,
+    };
+  }
+
+  if (subcommand === "check") {
+    const parsed = parseConfigportApplyArgs(args.slice(1), "check");
+
+    if (parsed.status === "error") {
+      return { exitCode: 1, stderr: `${parsed.message}\n${CONFIGPORT_USAGE}` };
+    }
+
+    const result = await checkConfigportOverlay(parsed);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = formatConfigportDiagnostics(result.diagnostics);
+    const summary = `Checked configport overlay ${parsed.profile}/${parsed.target}/${parsed.pack} at ${result.outputPath} with ${result.summary.files} file(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: result.diagnostics.length > 0 ? `${summary}\n${diagnostics}` : summary,
     };
   }
 
@@ -566,7 +585,10 @@ function parseConfigportOverlayPutArgs(args: readonly string[]): ParsedConfigpor
   };
 }
 
-function parseConfigportApplyArgs(args: readonly string[]): ParsedConfigportApplyArgs {
+function parseConfigportApplyArgs(
+  args: readonly string[],
+  operation: "apply" | "check",
+): ParsedConfigportApplyArgs {
   const paths: string[] = [];
   let pack: string | undefined;
   let profile: string | undefined;
@@ -614,7 +636,7 @@ function parseConfigportApplyArgs(args: readonly string[]): ParsedConfigportAppl
     }
 
     if (arg.startsWith("--")) {
-      return { message: `Unknown configport apply option '${arg}'.`, status: "error" };
+      return { message: `Unknown configport ${operation} option '${arg}'.`, status: "error" };
     }
 
     paths.push(arg);
@@ -622,14 +644,14 @@ function parseConfigportApplyArgs(args: readonly string[]): ParsedConfigportAppl
 
   if (paths.length !== 3) {
     return {
-      message: "configport apply requires state-root, generated, and output paths.",
+      message: `configport ${operation} requires state-root, generated, and output paths.`,
       status: "error",
     };
   }
 
   if (!profile || !target || !pack) {
     return {
-      message: "configport apply requires --profile, --target, and --pack.",
+      message: `configport ${operation} requires --profile, --target, and --pack.`,
       status: "error",
     };
   }
@@ -638,7 +660,7 @@ function parseConfigportApplyArgs(args: readonly string[]): ParsedConfigportAppl
 
   if (stateRootPath === undefined || generatedPath === undefined || outputPath === undefined) {
     return {
-      message: "configport apply requires state-root, generated, and output paths.",
+      message: `configport ${operation} requires state-root, generated, and output paths.`,
       status: "error",
     };
   }
