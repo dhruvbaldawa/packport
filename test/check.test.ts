@@ -64,6 +64,7 @@ Description: Core workflows.
 describe("runCli", () => {
   const usage =
     "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+  const opencodeUsage = "Usage: packport opencode generate <pack-root> <output-root>";
 
   test("runs check and returns stdout", async () => {
     const rootPath = await createValidPackRepository();
@@ -257,6 +258,27 @@ describe("runCli", () => {
     });
   });
 
+  test("generates OpenCode output", async () => {
+    const rootPath = await createValidPackRepository();
+    const outputPath = join(await mkdtemp(join(tmpdir(), "packport-cli-opencode-")), "repo");
+
+    const result = await runCli(["opencode", "generate", rootPath, outputPath]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(
+      `Generated OpenCode output at ${outputPath} with 1 command(s), 0 agent(s), and 0 skill(s).`,
+    );
+    expect(await readFile(join(outputPath, ".opencode/commands/commit.md"), "utf8")).toBe(
+      ["---", 'description: "commit command"', "---", "", "# Commit", ""].join("\n"),
+    );
+  });
+
+  test("reports OpenCode generation usage errors", async () => {
+    const result = await runCli(["opencode", "generate", "only-root"]);
+
+    expect(result).toEqual({ exitCode: 1, stderr: opencodeUsage });
+  });
+
   test("returns nonzero for Claude migration scan errors", async () => {
     const rootPath = await mkdtemp(join(tmpdir(), "packport-claude-scan-"));
 
@@ -289,7 +311,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr: `Unknown command 'wat'.\n${usage}`,
+      stderr: `Unknown command 'wat'.\n${usage}\n${opencodeUsage}`,
     });
   });
 });

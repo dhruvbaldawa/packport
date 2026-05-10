@@ -28,6 +28,7 @@ export {
   writePackLock,
 } from "./core/lockfile";
 export { parseMarkdownContract } from "./core/markdown";
+export { generateOpenCodeOutput } from "./core/opencode";
 export { runCli } from "./cli";
 export type {
   ClaudeMigrationAsset,
@@ -46,6 +47,7 @@ export type {
 export type { CheckResult } from "./core/check";
 export type { ControlSkill, GenerateControlPluginResult } from "./core/control-plugin";
 export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";
+export type { GenerateOpenCodeResult } from "./core/opencode";
 export type {
   AssetContract,
   AssetIndex,

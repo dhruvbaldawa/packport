@@ -11,11 +11,13 @@ import {
 } from "./core/claude-migration";
 import { checkPackRepository, formatDiagnostics } from "./core/check";
 import { generateClaudeControlPlugin } from "./core/control-plugin";
+import { generateOpenCodeOutput } from "./core/opencode";
 
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
   "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+const OPENCODE_USAGE = "Usage: packport opencode generate <pack-root> <output-root>";
 
 type ParsedClaudeMigrationArgs =
   | {
@@ -148,9 +150,36 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     return { exitCode: 1, stderr: USAGE };
   }
 
+  if (command === "opencode") {
+    const [subcommand, rootPath, outputPath] = args;
+
+    if (subcommand !== "generate" || rootPath === undefined || outputPath === undefined) {
+      return { exitCode: 1, stderr: OPENCODE_USAGE };
+    }
+
+    if (args.length > 3) {
+      return { exitCode: 1, stderr: OPENCODE_USAGE };
+    }
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = result.diagnostics
+      .map(
+        (diagnostic) =>
+          `${diagnostic.severity.toUpperCase()} ${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`,
+      )
+      .join("\n");
+    const summary = `Generated OpenCode output at ${result.outputPath} with ${result.summary.commands} command(s), ${result.summary.agents} agent(s), and ${result.summary.skills} skill(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: diagnostics ? `${summary}\n${diagnostics}` : summary,
+    };
+  }
+
   return {
     exitCode: 1,
-    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}`,
+    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${OPENCODE_USAGE}`,
   };
 }
 
