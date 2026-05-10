@@ -90,6 +90,7 @@ export type ClaudeMigrationPlanResult = {
 };
 
 export type ClaudeMigrationPlanOptions = {
+  readonly acceptAssets?: readonly string[];
   readonly excludeAssets?: readonly string[];
   readonly excludePlugins?: readonly string[];
 };
@@ -185,8 +186,10 @@ export async function planClaudeMigration(
   const files: ClaudeMigrationPlanFile[] = [];
   const questions: ClaudeMigrationPlanQuestion[] = [];
   const plannedTargets = new Map<string, string>();
+  const acceptedAssets = new Set(options.acceptAssets ?? []);
   const excludedAssets = new Set(options.excludeAssets ?? []);
   const excludedPlugins = new Set(options.excludePlugins ?? []);
+  const usedAcceptedAssets = new Set<string>();
   const usedExcludedAssets = new Set<string>();
   const usedExcludedPlugins = new Set<string>();
   let plannedAssets = 0;
@@ -219,11 +222,18 @@ export async function planClaudeMigration(
     }
 
     for (const asset of plugin.assets) {
-      const excludedAsset = findAssetExclusion(asset, excludedAssets);
+      const excludedAsset = findAssetDecision(asset, excludedAssets);
 
       if (excludedAsset !== undefined) {
         usedExcludedAssets.add(excludedAsset);
         continue;
+      }
+
+      const acceptedAsset = findAssetDecision(asset, acceptedAssets);
+      const resolvedByAcceptance = acceptedAsset !== undefined;
+
+      if (acceptedAsset !== undefined) {
+        usedAcceptedAssets.add(acceptedAsset);
       }
 
       plannedAssets += 1;
@@ -233,7 +243,9 @@ export async function planClaudeMigration(
         assetKindDirectory(asset.kind),
         toPortableDirectoryName(asset.name),
       );
-      const payloads = await collectPlannedPayloads(plugin, asset, diagnostics, questions);
+      const payloads = await collectPlannedPayloads(plugin, asset, diagnostics, questions, {
+        includeQuestions: !resolvedByAcceptance,
+      });
 
       if (asset.kind === "skill" && payloads.length > 1) {
         addPlanFile(
@@ -265,7 +277,7 @@ export async function planClaudeMigration(
         );
       }
 
-      if (asset.decisionRequired) {
+      if (asset.decisionRequired && !resolvedByAcceptance) {
         questions.push({
           asset: {
             classification: asset.classification,
@@ -279,6 +291,17 @@ export async function planClaudeMigration(
           reasons: asset.reasons,
         });
       }
+    }
+  }
+
+  for (const acceptedAsset of [...acceptedAssets].sort(compareStrings)) {
+    if (!usedAcceptedAssets.has(acceptedAsset)) {
+      diagnostics.push({
+        code: "unused-claude-asset-acceptance",
+        message: `No Claude asset matching ${acceptedAsset} was found to accept.`,
+        path: rootPath,
+        severity: "warning",
+      });
     }
   }
 
@@ -332,7 +355,7 @@ export async function writeClaudeMigration(
   if (plan.questions.length > 0) {
     diagnostics.push({
       code: "unresolved-claude-migration-questions",
-      message: "Resolve or exclude Claude migration questions before writing portable source.",
+      message: "Accept or exclude Claude migration questions before writing portable source.",
       path: rootPath,
       severity: "error",
     });
@@ -800,13 +823,13 @@ function serializeFrontmatterValue(value: string): string {
   return JSON.stringify(value);
 }
 
-/** Returns the matching user-provided asset exclusion key for an asset, if any. */
-function findAssetExclusion(
+/** Returns the matching user-provided asset decision key for an asset, if any. */
+function findAssetDecision(
   asset: ClaudeMigrationAsset,
-  excludedAssets: ReadonlySet<string>,
+  decisionAssets: ReadonlySet<string>,
 ): string | undefined {
-  for (const key of assetExclusionKeys(asset)) {
-    if (excludedAssets.has(key)) {
+  for (const key of assetDecisionKeys(asset)) {
+    if (decisionAssets.has(key)) {
       return key;
     }
   }
@@ -814,8 +837,8 @@ function findAssetExclusion(
   return undefined;
 }
 
-/** Provides stable asset exclusion keys for user-approved migration decisions. */
-function assetExclusionKeys(asset: ClaudeMigrationAsset): readonly string[] {
+/** Provides stable asset keys for user-approved migration decisions. */
+function assetDecisionKeys(asset: ClaudeMigrationAsset): readonly string[] {
   return [`${asset.pluginName}/${asset.name}`, `${asset.pluginName}/${asset.kind}/${asset.name}`];
 }
 
@@ -850,6 +873,7 @@ async function collectPlannedPayloads(
   asset: ClaudeMigrationAsset,
   diagnostics: Diagnostic[],
   questions: ClaudeMigrationPlanQuestion[],
+  options: { readonly includeQuestions: boolean } = { includeQuestions: true },
 ): Promise<PlannedPayload[]> {
   const sourcePath = join(plugin.path, asset.path);
 
@@ -871,7 +895,7 @@ async function collectPlannedPayloads(
     const text = file === sourcePath ? undefined : await readTextFile(file, diagnostics);
     const facts = collectFacts(`${sourceRelativePath}\n${text ?? ""}`);
 
-    if (file !== sourcePath && facts.length > 0) {
+    if (options.includeQuestions && file !== sourcePath && facts.length > 0) {
       questions.push({
         asset: {
           classification: asset.classification,

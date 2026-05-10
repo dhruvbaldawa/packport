@@ -22,10 +22,11 @@ Use this skill to inspect Claude Code marketplace or plugin source before writin
 9. Inspect planned skill support-file questions as content findings, not just path findings; support files with local values may need configport treatment.
 10. Expect multi-file skills to produce `ASSET.md` with `SKILL.md` first and support files after it.
 11. Call out `harness-specific`, `unsupported`, `unclear`, and fact-bearing assets as questions, not decisions.
-12. If the user marks a whole plugin as harness-specific, rerun the plan with `--exclude-plugin <name>` before summarizing portable source files.
-13. If the user marks one asset as harness-specific, rerun the plan with `--exclude-asset <plugin/name>` before summarizing portable source files.
-14. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
-15. After every question is resolved or excluded, run `packport migrate-claude write <source> <output>` with the accepted exclusions.
+12. If the user confirms a questioned asset and its support files are pack source, rerun the plan with `--accept-asset <plugin/name>` or `--accept-asset <plugin/kind/name>`.
+13. If the user marks a whole plugin as harness-specific, rerun the plan with `--exclude-plugin <name>` before summarizing portable source files.
+14. If the user marks one asset as harness-specific, rerun the plan with `--exclude-asset <plugin/name>` before summarizing portable source files.
+15. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
+16. After every question is accepted or excluded, run `packport migrate-claude write <source> <output>` with the accepted decisions.
 
 ## Boundaries
 

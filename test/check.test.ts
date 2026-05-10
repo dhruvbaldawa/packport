@@ -67,7 +67,7 @@ description: Core workflows.
 
 describe("runCli", () => {
   const usage =
-    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
   const claudeUsage = "Usage: packport claude generate <pack-root> [output-root]";
   const opencodeUsage =
     "Usage: packport opencode generate <pack-root> <output-root> [--include-control-packs]";
@@ -258,8 +258,37 @@ describe("runCli", () => {
     expect(result.stdout).not.toContain("packs/essentials/commands/commit/COMMAND.md");
   });
 
+  test("runs Claude migration dry-run plans with asset acceptances", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-cli-plan-source-"));
+    await mkdir(join(rootPath, ".claude-plugin"), { recursive: true });
+    await mkdir(join(rootPath, "commands"), { recursive: true });
+    await writeFile(
+      join(rootPath, ".claude-plugin/plugin.json"),
+      JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+    );
+    await writeFile(join(rootPath, "commands/search.md"), "Use $TODOIST_API_TOKEN.\n");
+
+    const result = await runCli([
+      "migrate-claude",
+      "plan",
+      rootPath,
+      "--accept-asset",
+      "todoist/search",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Questions: 0");
+    expect(result.stdout).not.toContain("question pack-candidate todoist/search");
+  });
+
   test("reports Claude migration plan option errors", async () => {
     const cases: readonly (readonly string[])[] = [
+      ["migrate-claude", "plan", "--accept-asset"],
+      ["migrate-claude", "plan", "--accept-asset="],
       ["migrate-claude", "plan", "--exclude-plugin"],
       ["migrate-claude", "plan", "--exclude-plugin", ""],
       ["migrate-claude", "plan", "--exclude-plugin="],
@@ -322,6 +351,36 @@ describe("runCli", () => {
     await expect(
       readFile(join(outputPath, "packs/todoist/commands/search/COMMAND.md"), "utf8"),
     ).rejects.toThrow();
+  });
+
+  test("writes Claude migration output with asset acceptances", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-cli-write-source-"));
+    const outputPath = join(await mkdtemp(join(tmpdir(), "packport-cli-write-")), "output");
+    await mkdir(join(rootPath, ".claude-plugin"), { recursive: true });
+    await mkdir(join(rootPath, "commands"), { recursive: true });
+    await writeFile(
+      join(rootPath, ".claude-plugin/plugin.json"),
+      JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+    );
+    await writeFile(join(rootPath, "commands/search.md"), "Use $TODOIST_API_TOKEN.\n");
+
+    const result = await runCli([
+      "migrate-claude",
+      "write",
+      rootPath,
+      outputPath,
+      "--accept-asset=todoist/search",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(`Wrote 2 Claude migration file(s) to ${outputPath}.`);
+    expect(
+      await readFile(join(outputPath, "packs/todoist/commands/search/COMMAND.md"), "utf8"),
+    ).toBe("Use $TODOIST_API_TOKEN.\n");
   });
 
   test("reports Claude migration write usage errors", async () => {

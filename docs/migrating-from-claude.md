@@ -42,19 +42,23 @@ The planner shows the portable files it would create under `packs/`. It does not
 Assets with structural facts produce questions. Questions are not failures; they mark places where
 a person or harness agent must decide whether something belongs in pack source or configport state.
 
-Use exclusions after a decision:
+Use acceptances or exclusions after a decision:
 
 ```bash
+bun src/cli.ts migrate-claude plan /path/to/claude-source --accept-asset essentials/commit
 bun src/cli.ts migrate-claude plan /path/to/claude-source --exclude-plugin notifications
 bun src/cli.ts migrate-claude plan /path/to/claude-source --exclude-asset essentials/commit
 ```
 
-Asset exclusions accept either:
+Asset acceptances and exclusions accept either:
 
 ```text
 <plugin>/<asset>
 <plugin>/<kind>/<asset>
 ```
+
+Use `--accept-asset` when a questioned asset, including its support files, should remain pack
+source. Use exclusions when the plugin or asset should not be written to portable source.
 
 ## Write
 
@@ -63,7 +67,8 @@ bun src/cli.ts migrate-claude write /path/to/claude-source /tmp/portable-packs
 ```
 
 `write` refuses to proceed while unresolved migration questions remain. Resolve them by changing the
-source, excluding the plugin or asset, or rerunning after the user approves the mapping.
+source, accepting the asset as pack source, excluding the plugin or asset, or rerunning after the
+user approves the mapping.
 
 The writer creates source files such as:
 

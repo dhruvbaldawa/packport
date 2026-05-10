@@ -36,7 +36,7 @@ import { generateOpenCodeOutput } from "./core/opencode";
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
-  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
 const CLAUDE_USAGE = "Usage: packport claude generate <pack-root> [output-root]";
 const OPENCODE_USAGE =
   "Usage: packport opencode generate <pack-root> <output-root> [--include-control-packs]";
@@ -47,6 +47,7 @@ const CONFIGPORT_USAGE =
 
 type ParsedClaudeMigrationArgs =
   | {
+      readonly acceptAssets: readonly string[];
       readonly excludeAssets: readonly string[];
       readonly excludePlugins: readonly string[];
       readonly paths: readonly string[];
@@ -196,6 +197,7 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
       }
 
       const result = await planClaudeMigration(parsed.paths[0] ?? process.cwd(), {
+        acceptAssets: parsed.acceptAssets,
         excludeAssets: parsed.excludeAssets,
         excludePlugins: parsed.excludePlugins,
       });
@@ -231,6 +233,7 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
       }
 
       const result = await writeClaudeMigration(rootPath, outputPath, {
+        acceptAssets: parsed.acceptAssets,
         excludeAssets: parsed.excludeAssets,
         excludePlugins: parsed.excludePlugins,
       });
@@ -954,6 +957,7 @@ function parseAssignment(value: string, optionName: string): ParsedAssignment {
 
 /** Parses migration options that let skills apply user-approved decisions. */
 function parseClaudeMigrationArgs(args: readonly string[]): ParsedClaudeMigrationArgs {
+  const acceptAssets: string[] = [];
   const excludeAssets: string[] = [];
   const excludePlugins: string[] = [];
   const paths: string[] = [];
@@ -962,6 +966,29 @@ function parseClaudeMigrationArgs(args: readonly string[]): ParsedClaudeMigratio
     const arg = args[index];
 
     if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--accept-asset") {
+      const assetName = args[index + 1];
+
+      if (assetName === undefined || assetName === "" || assetName.startsWith("--")) {
+        return { message: "--accept-asset requires an asset key.", status: "error" };
+      }
+
+      acceptAssets.push(assetName);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--accept-asset=")) {
+      const assetName = arg.slice("--accept-asset=".length);
+
+      if (assetName === "") {
+        return { message: "--accept-asset requires an asset key.", status: "error" };
+      }
+
+      acceptAssets.push(assetName);
       continue;
     }
 
@@ -1018,7 +1045,7 @@ function parseClaudeMigrationArgs(args: readonly string[]): ParsedClaudeMigratio
     paths.push(arg);
   }
 
-  return { excludeAssets, excludePlugins, paths, status: "ok" };
+  return { acceptAssets, excludeAssets, excludePlugins, paths, status: "ok" };
 }
 
 if (import.meta.main) {

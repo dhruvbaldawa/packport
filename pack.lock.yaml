@@ -37,7 +37,7 @@ assets:
   - id: packport-control/skill/migrate-claude
     kind: skill
     payloads:
-      - hash: ba649fa006c30049adcbb8c47e94704f7b5b44b1395593373498476646cd801c
+      - hash: b0e40cade456930fc8f914819b3a8d06f909e548bf68e4170fdca533ff96b000
         path: packs/packport-control/skills/migrate-claude/SKILL.md
   - id: packport-control/skill/release-pack
     kind: skill
@@ -111,7 +111,7 @@ outputs:
     packageName: packport
     path: .packs/claude/packport/skills/generate-pack/SKILL.md
     target: claude
-  - hash: ba649fa006c30049adcbb8c47e94704f7b5b44b1395593373498476646cd801c
+  - hash: b0e40cade456930fc8f914819b3a8d06f909e548bf68e4170fdca533ff96b000
     kind: package
     packageName: packport
     path: .packs/claude/packport/skills/migrate-claude/SKILL.md
@@ -166,7 +166,7 @@ outputs:
     packageName: packport-control
     path: .packs/codex/packport-control/skills/generate-pack/SKILL.md
     target: codex
-  - hash: 240e59c1b0a18ebd8f5fe88c2e670ddedd2c627bce5ab457e4daedc9b3d0a529
+  - hash: 6ebcf1ccdd0b2a316673d31ed5f451f29e8a9b03a0689f74d688f231d99b7349
     kind: package
     packageName: packport-control
     path: .packs/codex/packport-control/skills/migrate-claude/SKILL.md
@@ -211,7 +211,7 @@ outputs:
     packageName: opencode
     path: .packs/opencode/.opencode/skills/generate-pack/SKILL.md
     target: opencode
-  - hash: 240e59c1b0a18ebd8f5fe88c2e670ddedd2c627bce5ab457e4daedc9b3d0a529
+  - hash: 6ebcf1ccdd0b2a316673d31ed5f451f29e8a9b03a0689f74d688f231d99b7349
     kind: package
     packageName: opencode
     path: .packs/opencode/.opencode/skills/migrate-claude/SKILL.md

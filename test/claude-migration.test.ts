@@ -721,6 +721,28 @@ describe("planClaudeMigration", () => {
     expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
   });
 
+  test("reports unused asset acceptances", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/commit.md": "# Commit\n",
+    });
+
+    const result = await planClaudeMigration(rootPath, { acceptAssets: ["essentials/missing"] });
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unused-claude-asset-acceptance",
+      message: "No Claude asset matching essentials/missing was found to accept.",
+      path: rootPath,
+      severity: "warning",
+    });
+    expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
+  });
+
   test("reports target collisions after flattening nested Claude names", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
@@ -765,6 +787,27 @@ describe("planClaudeMigration", () => {
     expect(result.files.map((file) => file.targetPath)).toEqual([
       "packs/essentials/PACK.md",
       "packs/essentials/skills/debugging/SKILL.md",
+    ]);
+  });
+
+  test("accepts user-approved fact-bearing assets as pack source", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+      "commands/search.md": "Use $TODOIST_API_TOKEN.\n",
+    });
+
+    const result = await planClaudeMigration(rootPath, { acceptAssets: ["todoist/search"] });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/todoist/PACK.md",
+      "packs/todoist/commands/search/COMMAND.md",
     ]);
   });
 
@@ -816,6 +859,32 @@ describe("planClaudeMigration", () => {
         "References variable TODOIST_API_TOKEN.",
       ],
     });
+  });
+
+  test("accepts user-approved skill support files as pack source", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "skills/debugging/SKILL.md": "# Debugging\n",
+      "skills/debugging/settings.json": '{"token":"$TODOIST_API_TOKEN"}\n',
+    });
+
+    const result = await planClaudeMigration(rootPath, {
+      acceptAssets: ["essentials/skill/debugging"],
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 1, files: 4, plugins: 1, questions: 0 });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/skills/debugging/ASSET.md",
+      "packs/essentials/skills/debugging/SKILL.md",
+      "packs/essentials/skills/debugging/settings.json",
+    ]);
   });
 
   test("sanitizes skill support filenames before planning target paths", async () => {
@@ -999,12 +1068,35 @@ payloads:
 
     expect(result.diagnostics).toContainEqual({
       code: "unresolved-claude-migration-questions",
-      message: "Resolve or exclude Claude migration questions before writing portable source.",
+      message: "Accept or exclude Claude migration questions before writing portable source.",
       path: rootPath,
       severity: "error",
     });
     expect(result.summary).toEqual({ files: 0 });
     await expect(lstat(join(outputPath, "packs/todoist/PACK.md"))).rejects.toThrow();
+  });
+
+  test("writes accepted fact-bearing portable pack source", async () => {
+    const rootPath = await createTempRepository();
+    const outputPath = await createTempRepository("packport-claude-output-");
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+      "commands/search.md": "Use $TODOIST_API_TOKEN.\n",
+    });
+
+    const result = await writeClaudeMigration(rootPath, outputPath, {
+      acceptAssets: ["todoist/search"],
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ files: 2 });
+    expect(
+      await readFile(join(outputPath, "packs/todoist/commands/search/COMMAND.md"), "utf8"),
+    ).toBe("Use $TODOIST_API_TOKEN.\n");
   });
 
   test("does not write when migration planning has errors", async () => {

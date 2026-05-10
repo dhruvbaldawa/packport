@@ -67,10 +67,11 @@ Then write source to a separate directory:
 packport migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable
 ```
 
-If questions remain, rerun with accepted exclusions:
+If questions remain, rerun with accepted decisions:
 
 ```bash
 packport migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable \
+  --accept-asset essentials/commit \
   --exclude-plugin notifications \
   --exclude-asset essentials/todoist
 ```

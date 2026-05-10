@@ -107,16 +107,19 @@ working directory.
 
 ```bash
 packport migrate-claude plan [root] \
+  [--accept-asset <plugin/name>]... \
   [--exclude-plugin <name>]... \
   [--exclude-asset <plugin/name>]...
 ```
 
-Builds a read-only migration plan. Reports planned files and decision questions.
+Builds a read-only migration plan. Reports planned files and decision questions. Use
+`--accept-asset` after reviewing a questioned asset that should remain pack source.
 
 ## migrate-claude write
 
 ```bash
 packport migrate-claude write <source> <output> \
+  [--accept-asset <plugin/name>]... \
   [--exclude-plugin <name>]... \
   [--exclude-asset <plugin/name>]...
 ```
