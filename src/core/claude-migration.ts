@@ -9,15 +9,26 @@ import type { Diagnostic } from "./types";
 export type ClaudeMigrationAssetKind = "agent" | "command" | "skill";
 
 export type ClaudeMigrationClassification =
-  | "configuration-candidate"
   | "harness-specific"
   | "pack-candidate"
   | "unclear"
   | "unsupported";
 
+export type ClaudeMigrationFactKind =
+  | "config-path-reference"
+  | "script-reference"
+  | "variable-reference";
+
+export type ClaudeMigrationFact = {
+  readonly kind: ClaudeMigrationFactKind;
+  readonly message: string;
+  readonly value: string;
+};
+
 export type ClaudeMigrationAsset = {
   readonly classification: ClaudeMigrationClassification;
   readonly decisionRequired: boolean;
+  readonly facts: readonly ClaudeMigrationFact[];
   readonly kind: ClaudeMigrationAssetKind;
   readonly name: string;
   readonly path: string;
@@ -53,6 +64,7 @@ export type ClaudeMigrationPlanFile = {
 export type ClaudeMigrationPlanQuestion = {
   readonly asset: {
     readonly classification: ClaudeMigrationClassification;
+    readonly facts: readonly ClaudeMigrationFact[];
     readonly kind: ClaudeMigrationAssetKind;
     readonly name: string;
     readonly path: string;
@@ -106,17 +118,14 @@ const ASSET_CONVENTIONS: readonly AssetConvention[] = [
 
 const MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
 const PLUGIN_FILE = ".claude-plugin/plugin.json";
-const CONFIGURATION_SIGNALS = [
-  ".env",
-  "api key",
-  "api token",
-  "config.toml",
-  "credentials",
-  "environment variable",
-  "settings.json",
-  "todoist_api_token",
-];
 const HARNESS_SIGNALS = ["claude code", "/plugin", ".claude"];
+const CONFIG_PATH_PATTERN =
+  /(?:^|[\s`'"(=:])(~\/\.config\/[A-Za-z0-9._/-]*[A-Za-z0-9_-])(?=$|[\s`'"),;:]|\.(?=$|[\s`'")]))|(?:^|[\s`'"(=:])((?:[A-Za-z0-9._-]+\/)*(?:\.env|settings\.json|config\.toml))(?=$|[\s`'"),;:]|\.(?=$|[\s`'")]))/g;
+const SCRIPT_REFERENCE_PATTERN =
+  /(?:^|[\s`'"(=])((?:\.\/)?scripts\/[A-Za-z0-9._/-]+\.(?:cjs|js|mjs|sh|ts))(?=$|[\s`'"),;:]|\.(?=$|[\s`'")]))/g;
+const BRACED_VARIABLE_PATTERN = /\$\{([A-Z][A-Z0-9_]*)\}/g;
+const PLAIN_VARIABLE_PATTERN = /\$([A-Z][A-Z0-9_]*)\b/g;
+const UPPERCASE_IDENTIFIER_PATTERN = /\b[A-Z][A-Z0-9]*_[A-Z0-9_]*\b/g;
 
 /** Scans a Claude marketplace root or a single Claude plugin directory. */
 export async function scanClaudeMigrationSource(
@@ -192,6 +201,7 @@ export async function planClaudeMigration(rootPath: string): Promise<ClaudeMigra
         questions.push({
           asset: {
             classification: asset.classification,
+            facts: asset.facts,
             kind: asset.kind,
             name: asset.name,
             path: asset.path,
@@ -265,6 +275,10 @@ export function formatClaudeMigrationScan(result: ClaudeMigrationScanResult): st
       lines.push(
         `${asset.kind} ${asset.pluginName}/${asset.name} ${asset.classification} ${asset.path}`,
       );
+
+      for (const fact of asset.facts) {
+        lines.push(formatFact(fact));
+      }
     }
   }
 
@@ -299,6 +313,10 @@ export function formatClaudeMigrationPlan(result: ClaudeMigrationPlanResult): st
     lines.push(
       `question ${question.asset.classification} ${question.asset.pluginName}/${question.asset.name}: ${question.message}`,
     );
+
+    for (const fact of question.asset.facts) {
+      lines.push(formatFact(fact));
+    }
   }
 
   for (const diagnostic of result.diagnostics) {
@@ -525,10 +543,12 @@ function createAsset(
   text: string,
 ): ClaudeMigrationAsset {
   const assetPath = relativePath(pluginPath, path);
-  const classification = classifyAsset(text);
+  const facts = collectFacts(text);
+  const classification = classifyAsset(text, facts);
 
   return {
     ...classification,
+    facts,
     kind,
     name,
     path: assetPath,
@@ -539,6 +559,7 @@ function createAsset(
 /** Classifies obvious migration candidates without hiding the reason from the driving skill. */
 function classifyAsset(
   text: string,
+  facts: readonly ClaudeMigrationFact[],
 ): Pick<ClaudeMigrationAsset, "classification" | "decisionRequired" | "reasons"> {
   const bodyText = stripYamlFrontmatter(text).toLowerCase();
 
@@ -550,11 +571,11 @@ function classifyAsset(
     };
   }
 
-  if (hasConfigurationSignal(bodyText)) {
+  if (facts.length > 0) {
     return {
-      classification: "configuration-candidate",
+      classification: "pack-candidate",
       decisionRequired: true,
-      reasons: ["Body references values or files that likely belong in configport state."],
+      reasons: ["Asset contains structural references that need migration judgment."],
     };
   }
 
@@ -611,27 +632,29 @@ async function collectPlannedPayloads(
   const sourceDirectory = dirname(sourcePath);
   const files = await collectSkillPayloadFiles(sourceDirectory, diagnostics);
 
-  return files.flatMap((file) => {
+  return files.map((file) => {
     const sourceRelativePath = relativePath(sourceDirectory, file);
     const targetPath = toPortableSupportPath(sourceDirectory, file);
+    const facts = collectFacts(sourceRelativePath).filter(
+      (fact) => fact.kind === "config-path-reference",
+    );
 
-    if (hasConfigurationSignal(sourceRelativePath)) {
+    if (facts.length > 0) {
       questions.push({
         asset: {
-          classification: "configuration-candidate",
+          classification: asset.classification,
+          facts,
           kind: asset.kind,
           name: asset.name,
           path: relativePath(plugin.path, file),
           pluginName: plugin.name,
         },
-        message:
-          "Decide how this support file should be represented in configport instead of pack source.",
-        reasons: ["Support file path looks like configuration state."],
+        message: "Decide whether this support file is pack source or configport-managed state.",
+        reasons: facts.map((fact) => fact.message),
       });
-      return [];
     }
 
-    return [{ sourcePath: file, targetPath }];
+    return { sourcePath: file, targetPath };
   });
 }
 
@@ -732,8 +755,8 @@ function toPortableSupportSegment(segment: string): string {
 
 /** Returns the migration question for one classified asset. */
 function decisionQuestionFor(asset: ClaudeMigrationAsset): string {
-  if (asset.classification === "configuration-candidate") {
-    return "Decide which parts are pack source versus configport-managed values.";
+  if (asset.facts.length > 0) {
+    return "Decide whether these structural references require pack source files or configport-managed values.";
   }
 
   if (asset.classification === "harness-specific") {
@@ -751,10 +774,72 @@ function decisionQuestionFor(asset: ClaudeMigrationAsset): string {
   return "Confirm this convention-supported Claude asset should become portable pack source.";
 }
 
-/** Checks strings for config-state signals shared by body and support-file classification. */
-function hasConfigurationSignal(value: string): boolean {
-  const normalizedValue = value.toLowerCase();
-  return CONFIGURATION_SIGNALS.some((signal) => normalizedValue.includes(signal));
+/** Collects deterministic structural facts for the migration-driving skill to interpret. */
+function collectFacts(value: string): ClaudeMigrationFact[] {
+  const facts: ClaudeMigrationFact[] = [];
+  const seen = new Set<string>();
+
+  const addFact = (kind: ClaudeMigrationFactKind, factValue: string, message: string) => {
+    const key = `${kind}\0${factValue}`;
+
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    facts.push({ kind, message, value: factValue });
+  };
+
+  for (const configPath of matchPatternValues(CONFIG_PATH_PATTERN, value)) {
+    addFact("config-path-reference", configPath, `References config-like path ${configPath}.`);
+  }
+
+  for (const scriptPath of matchPatternValues(SCRIPT_REFERENCE_PATTERN, value)) {
+    addFact("script-reference", scriptPath, `References script path ${scriptPath}.`);
+  }
+
+  for (const variable of matchPatternValues(BRACED_VARIABLE_PATTERN, value)) {
+    addFact("variable-reference", variable, `References variable ${variable}.`);
+  }
+
+  for (const variable of matchPatternValues(PLAIN_VARIABLE_PATTERN, value)) {
+    addFact("variable-reference", variable, `References variable ${variable}.`);
+  }
+
+  for (const variable of matchPatternValues(UPPERCASE_IDENTIFIER_PATTERN, value)) {
+    addFact("variable-reference", variable, `References variable ${variable}.`);
+  }
+
+  return facts.sort(compareFacts);
+}
+
+/** Returns capture-group values from a global structural fact pattern. */
+function matchPatternValues(pattern: RegExp, value: string): string[] {
+  const values: string[] = [];
+  pattern.lastIndex = 0;
+
+  for (const match of value.matchAll(pattern)) {
+    values.push(match.slice(1).find((capture) => capture !== undefined) ?? match[0].trim());
+  }
+
+  pattern.lastIndex = 0;
+  return values;
+}
+
+/** Formats one structural migration fact for deterministic scan and plan reports. */
+function formatFact(fact: ClaudeMigrationFact): string {
+  return `fact ${fact.kind} ${fact.value}: ${fact.message}`;
+}
+
+/** Sorts facts so reports do not depend on prose ordering. */
+function compareFacts(left: ClaudeMigrationFact, right: ClaudeMigrationFact): number {
+  const kindComparison = compareStrings(left.kind, right.kind);
+
+  if (kindComparison !== 0) {
+    return kindComparison;
+  }
+
+  return compareStrings(left.value, right.value);
 }
 
 /** Returns marketplace entries after validating source paths before use. */

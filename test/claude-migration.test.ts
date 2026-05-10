@@ -111,7 +111,7 @@ Run inside Claude Code.
     });
   });
 
-  test("classifies config-looking assets as configuration candidates", async () => {
+  test("reports structural facts without semantic config classification", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
       ".claude-plugin/plugin.json": JSON.stringify({
@@ -119,19 +119,176 @@ Run inside Claude Code.
         name: "todoist",
         version: "1.0.0",
       }),
-      "commands/search.md": "Set TODOIST_API_TOKEN as an environment variable before use.\n",
+      "commands/search.md": [
+        "---",
+        "allowed-tools: Bash(scripts/todoist.ts)",
+        "---",
+        "Set $" +
+          "{TODOIST_BRACED_TOKEN}, $TODOIST_PLAIN_TOKEN, and TODOIST_BARE_TOKEN before use.",
+        "Load --env-file=.env before running.",
+        "Read ~/.config/todoist/config.toml. Then call the helper.",
+      ].join("\n"),
     });
 
     const result = await scanClaudeMigrationSource(rootPath);
 
     expect(result.diagnostics).toEqual([]);
     expect(result.plugins[0]?.assets[0]).toMatchObject({
-      classification: "configuration-candidate",
+      classification: "pack-candidate",
       decisionRequired: true,
+      facts: [
+        {
+          kind: "config-path-reference",
+          message: "References config-like path .env.",
+          value: ".env",
+        },
+        {
+          kind: "config-path-reference",
+          message: "References config-like path ~/.config/todoist/config.toml.",
+          value: "~/.config/todoist/config.toml",
+        },
+        {
+          kind: "script-reference",
+          message: "References script path scripts/todoist.ts.",
+          value: "scripts/todoist.ts",
+        },
+        {
+          kind: "variable-reference",
+          message: "References variable TODOIST_BARE_TOKEN.",
+          value: "TODOIST_BARE_TOKEN",
+        },
+        {
+          kind: "variable-reference",
+          message: "References variable TODOIST_BRACED_TOKEN.",
+          value: "TODOIST_BRACED_TOKEN",
+        },
+        {
+          kind: "variable-reference",
+          message: "References variable TODOIST_PLAIN_TOKEN.",
+          value: "TODOIST_PLAIN_TOKEN",
+        },
+      ],
       kind: "command",
       name: "search",
       path: "commands/search.md",
       pluginName: "todoist",
+    });
+  });
+
+  test("does not infer config facts from credentials prose", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Security workflows",
+        name: "security",
+        version: "1.0.0",
+      }),
+      "commands/review.md": "Review credentials handling and secret storage before deployment.\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins[0]?.assets[0]).toMatchObject({
+      classification: "pack-candidate",
+      decisionRequired: false,
+      facts: [],
+      kind: "command",
+      name: "review",
+      path: "commands/review.md",
+      pluginName: "security",
+    });
+  });
+
+  test("deduplicates repeated structural facts", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+      "commands/search.md": [
+        "Use $TODOIST_API_TOKEN and $TODOIST_API_TOKEN.",
+        "Read settings.json and settings.json.",
+        "Run scripts/todoist.ts and scripts/todoist.ts.",
+      ].join("\n"),
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.plugins[0]?.assets[0]?.facts).toEqual([
+      {
+        kind: "config-path-reference",
+        message: "References config-like path settings.json.",
+        value: "settings.json",
+      },
+      {
+        kind: "script-reference",
+        message: "References script path scripts/todoist.ts.",
+        value: "scripts/todoist.ts",
+      },
+      {
+        kind: "variable-reference",
+        message: "References variable TODOIST_API_TOKEN.",
+        value: "TODOIST_API_TOKEN",
+      },
+    ]);
+  });
+
+  test("does not infer script facts from longer path segments", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Script workflows",
+        name: "scripts",
+        version: "1.0.0",
+      }),
+      "commands/review.md": [
+        "Inspect noscripts/todoist.ts and not-scripts/todoist.ts.",
+        "Ignore scripts/todoist.ts-old, scripts/todoist.ts.bak, and scripts/todoist.ts/more.",
+      ].join("\n"),
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins[0]?.assets[0]).toMatchObject({
+      classification: "pack-candidate",
+      decisionRequired: false,
+      facts: [],
+      kind: "command",
+      name: "review",
+      path: "commands/review.md",
+      pluginName: "scripts",
+    });
+  });
+
+  test("does not infer config facts from longer config-like suffixes", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Config workflows",
+        name: "config",
+        version: "1.0.0",
+      }),
+      "commands/review.md": [
+        "Load .env.local, settings.json.bak, and config.toml.example.",
+        "Ignore my.env, nosettings.json, myconfig.toml, and prefix~/.config/tool/config.toml.",
+      ].join("\n"),
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins[0]?.assets[0]).toMatchObject({
+      classification: "pack-candidate",
+      decisionRequired: false,
+      facts: [],
+      kind: "command",
+      name: "review",
+      path: "commands/review.md",
+      pluginName: "config",
     });
   });
 
@@ -302,7 +459,11 @@ describe("formatClaudeMigrationScan", () => {
         name: "essentials",
         version: "1.0.0",
       }),
-      "commands/commit.md": "# Commit\n",
+      "commands/commit.md": [
+        "# Commit",
+        "",
+        "Use $TODOIST_API_TOKEN, scripts/todoist.ts, and settings.json.",
+      ].join("\n"),
     });
 
     const report = formatClaudeMigrationScan(await scanClaudeMigrationSource(rootPath));
@@ -314,6 +475,9 @@ describe("formatClaudeMigrationScan", () => {
         "Assets: 1",
         `essentials@1.0.0 ${rootPath}`,
         "command essentials/commit pack-candidate commands/commit.md",
+        "fact config-path-reference settings.json: References config-like path settings.json.",
+        "fact script-reference scripts/todoist.ts: References script path scripts/todoist.ts.",
+        "fact variable-reference TODOIST_API_TOKEN: References variable TODOIST_API_TOKEN.",
       ].join("\n"),
     );
   });
@@ -380,7 +544,7 @@ describe("planClaudeMigration", () => {
     ]);
   });
 
-  test("keeps config-looking skill support files out of pack payload plans", async () => {
+  test("reports config-looking skill support files as fact questions", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
       ".claude-plugin/plugin.json": JSON.stringify({
@@ -399,18 +563,25 @@ describe("planClaudeMigration", () => {
       "packs/essentials/PACK.md",
       "packs/essentials/skills/debugging/SKILL.md",
       "packs/essentials/skills/debugging/reference/examples.md",
+      "packs/essentials/skills/debugging/settings.json",
     ]);
     expect(result.questions).toContainEqual({
       asset: {
-        classification: "configuration-candidate",
+        classification: "pack-candidate",
+        facts: [
+          {
+            kind: "config-path-reference",
+            message: "References config-like path settings.json.",
+            value: "settings.json",
+          },
+        ],
         kind: "skill",
         name: "debugging",
         path: "skills/debugging/settings.json",
         pluginName: "essentials",
       },
-      message:
-        "Decide how this support file should be represented in configport instead of pack source.",
-      reasons: ["Support file path looks like configuration state."],
+      message: "Decide whether this support file is pack source or configport-managed state.",
+      reasons: ["References config-like path settings.json."],
     });
   });
 
@@ -509,14 +680,25 @@ describe("formatClaudeMigrationPlan", () => {
         name: "todoist",
         version: "1.0.0",
       }),
-      "commands/search.md": "Set TODOIST_API_TOKEN as an environment variable before use.\n",
+      "commands/search.md": "Use $TODOIST_API_TOKEN, scripts/todoist.ts, and settings.json.\n",
     });
 
     const report = formatClaudeMigrationPlan(await planClaudeMigration(rootPath));
 
-    expect(report).toContain("Questions: 1");
-    expect(report).toContain(
-      "question configuration-candidate todoist/search: Decide which parts are pack source versus configport-managed values.",
+    expect(report).toBe(
+      [
+        `Claude migration plan: ${rootPath}`,
+        "Plugins: 1",
+        "Assets: 1",
+        "Files: 2",
+        "Questions: 1",
+        "create packs/todoist/PACK.md",
+        `copy ${join(rootPath, "commands/search.md")} -> packs/todoist/commands/search/COMMAND.md`,
+        "question pack-candidate todoist/search: Decide whether these structural references require pack source files or configport-managed values.",
+        "fact config-path-reference settings.json: References config-like path settings.json.",
+        "fact script-reference scripts/todoist.ts: References script path scripts/todoist.ts.",
+        "fact variable-reference TODOIST_API_TOKEN: References variable TODOIST_API_TOKEN.",
+      ].join("\n"),
     );
   });
 });

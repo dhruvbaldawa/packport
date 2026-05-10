@@ -32,6 +32,8 @@ export type {
   ClaudeMigrationAsset,
   ClaudeMigrationAssetKind,
   ClaudeMigrationClassification,
+  ClaudeMigrationFact,
+  ClaudeMigrationFactKind,
   ClaudeMigrationPlanFile,
   ClaudeMigrationPlanQuestion,
   ClaudeMigrationPlanResult,
