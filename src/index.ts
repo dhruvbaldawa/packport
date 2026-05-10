@@ -2,8 +2,15 @@
 // ABOUTME: Gives tests a stable import before feature modules are introduced.
 
 export const packageName = "packport";
+export const packageVersion = "0.0.0";
 
 export { checkPackRepository, formatDiagnostics } from "./core/check";
+export {
+  CONTROL_PLUGIN_NAME,
+  CONTROL_SKILLS_DIRECTORY,
+  discoverControlSkills,
+  generateClaudeControlPlugin,
+} from "./core/control-plugin";
 export { discoverPackRepository } from "./core/discovery";
 export {
   createPackLock,
@@ -16,6 +23,7 @@ export {
 export { parseMarkdownContract } from "./core/markdown";
 export { runCli } from "./cli";
 export type { CheckResult } from "./core/check";
+export type { ControlSkill, GenerateControlPluginResult } from "./core/control-plugin";
 export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";
 export type {
   AssetContract,

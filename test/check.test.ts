@@ -1,7 +1,7 @@
 // ABOUTME: Verifies the packport check primitive and CLI wrapper.
 // ABOUTME: Covers success and failure output without making skills run logic themselves.
 
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
@@ -70,6 +70,36 @@ describe("runCli", () => {
     expect(result).toEqual({ exitCode: 0, stdout: "No packport issues found." });
   });
 
+  test("generates the Claude control plugin", async () => {
+    const outputPath = join(await mkdtemp(join(tmpdir(), "packport-cli-control-")), "packport");
+
+    const result = await runCli(["control-plugin", "claude", outputPath]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Generated Claude control plugin at ${outputPath} with 1 skill(s).`,
+    });
+    expect(
+      JSON.parse(await readFile(join(outputPath, ".claude-plugin/plugin.json"), "utf8")),
+    ).toMatchObject({
+      name: "packport",
+      version: "0.0.0",
+    });
+    expect(await readFile(join(outputPath, "skills/check-pack/SKILL.md"), "utf8")).toStartWith(
+      "---\nname: check-pack",
+    );
+  });
+
+  test("reports control plugin usage errors", async () => {
+    const result = await runCli(["control-plugin", "opencode"]);
+
+    expect(result).toEqual({
+      exitCode: 1,
+      stderr:
+        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]",
+    });
+  });
+
   test("returns nonzero for failed checks", async () => {
     const rootPath = await mkdtemp(join(tmpdir(), "packport-check-"));
 
@@ -84,7 +114,8 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr: "Unknown command 'wat'.\nUsage: packport check [root]",
+      stderr:
+        "Unknown command 'wat'.\nUsage: packport check [root]\n       packport control-plugin claude <output> [source-root]",
     });
   });
 });
