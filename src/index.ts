@@ -35,6 +35,7 @@ export type {
   ClaudeMigrationFact,
   ClaudeMigrationFactKind,
   ClaudeMigrationPlanFile,
+  ClaudeMigrationPlanOptions,
   ClaudeMigrationPlanQuestion,
   ClaudeMigrationPlanResult,
   ClaudeMigrationPlugin,

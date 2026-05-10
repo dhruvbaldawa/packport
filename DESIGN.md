@@ -149,7 +149,8 @@ The generic tools must not know about `Dhruv`, `ccconfigs`, local machine paths,
 
 It should provide:
 
-- Portable packs for essentials, writing, todoist, notifications, and experimental workflows.
+- Portable packs for essentials, writing, notifications, and experimental workflows.
+- Claude-only Todoist integration as target-specific dogfood, not portable pack source.
 - Pack-owned customization declarations such as writing voice preferences, Todoist settings, model roles, and optional endpoints.
 - Dogfood configuration examples for `configport`, without making local values part of portable pack source.
 - Generated output packages for Claude Code, OpenCode, and Codex.
@@ -576,17 +577,17 @@ It should produce or guide toward:
 
 - Portable Markdown pack source made of payload files plus optional asset contracts.
 - Customization declarations.
-- Configuration candidates for values that should not live in pack source.
+- Structural facts that help the driving skill identify values that should not live in pack source.
 - Generated Claude, OpenCode, and Codex outputs.
 - Compatibility and degradation notes.
 
-It should classify assets as:
+It should report assets as:
 
-- Pack candidate.
-- Configuration candidate.
-- Harness-specific.
-- Unsupported or degraded.
-- Unclear and requiring user decision.
+- Pack candidates.
+- Harness-specific assets.
+- Unsupported or degraded assets.
+- Unclear assets requiring user decision.
+- Known structural facts such as config paths, script references, and explicit config/security variables.
 
 It must not silently decide pack boundaries, public/private distribution, or source-versus-configuration placement when the answer is ambiguous. Personal packs are still packs; they are not migrated into a separate overlay category merely because they are personal.
 

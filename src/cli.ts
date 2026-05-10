@@ -14,7 +14,15 @@ import { generateClaudeControlPlugin } from "./core/control-plugin";
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
-  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan|plan [root]";
+  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]...";
+
+type ParsedClaudeMigrationPlanArgs =
+  | {
+      readonly excludePlugins: readonly string[];
+      readonly rootPath: string;
+      readonly status: "ok";
+    }
+  | { readonly message: string; readonly status: "error" };
 
 type CliResult = {
   readonly exitCode: number;
@@ -64,7 +72,15 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     }
 
     if (subcommand === "plan") {
-      const result = await planClaudeMigration(rootPath);
+      const parsed = parseClaudeMigrationPlanArgs(args.slice(1));
+
+      if (parsed.status === "error") {
+        return { exitCode: 1, stderr: `${parsed.message}\n${USAGE}` };
+      }
+
+      const result = await planClaudeMigration(parsed.rootPath, {
+        excludePlugins: parsed.excludePlugins,
+      });
       const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
 
       return {
@@ -84,6 +100,55 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     exitCode: 1,
     stderr: `Unknown command '${command ?? ""}'.\n${USAGE}`,
   };
+}
+
+/** Parses plan options that let skills apply user-approved migration decisions. */
+function parseClaudeMigrationPlanArgs(args: readonly string[]): ParsedClaudeMigrationPlanArgs {
+  const excludePlugins: string[] = [];
+  let rootPath: string | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--exclude-plugin") {
+      const pluginName = args[index + 1];
+
+      if (pluginName === undefined || pluginName === "" || pluginName.startsWith("--")) {
+        return { message: "--exclude-plugin requires a plugin name.", status: "error" };
+      }
+
+      excludePlugins.push(pluginName);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--exclude-plugin=")) {
+      const pluginName = arg.slice("--exclude-plugin=".length);
+
+      if (pluginName === "") {
+        return { message: "--exclude-plugin requires a plugin name.", status: "error" };
+      }
+
+      excludePlugins.push(pluginName);
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      return { message: `Unknown migrate-claude plan option '${arg}'.`, status: "error" };
+    }
+
+    if (rootPath !== undefined) {
+      return { message: "migrate-claude plan accepts at most one root path.", status: "error" };
+    }
+
+    rootPath = arg;
+  }
+
+  return { excludePlugins, rootPath: rootPath ?? process.cwd(), status: "ok" };
 }
 
 if (import.meta.main) {

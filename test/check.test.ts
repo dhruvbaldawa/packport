@@ -62,6 +62,9 @@ Description: Core workflows.
 });
 
 describe("runCli", () => {
+  const usage =
+    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]...";
+
   test("runs check and returns stdout", async () => {
     const rootPath = await createValidPackRepository();
 
@@ -95,8 +98,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr:
-        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan|plan [root]",
+      stderr: usage,
     });
   });
 
@@ -124,6 +126,56 @@ describe("runCli", () => {
     );
   });
 
+  test("runs Claude migration dry-run plans with plugin exclusions", async () => {
+    const rootPath = await createClaudePluginRepository();
+
+    const result = await runCli([
+      "migrate-claude",
+      "plan",
+      rootPath,
+      "--exclude-plugin",
+      "essentials",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Plugins: 0");
+    expect(result.stdout).toContain("Files: 0");
+    expect(result.stdout).not.toContain("packs/essentials/PACK.md");
+  });
+
+  test("runs Claude migration dry-run plans with inline plugin exclusions", async () => {
+    const rootPath = await createClaudePluginRepository();
+
+    const result = await runCli([
+      "migrate-claude",
+      "plan",
+      rootPath,
+      "--exclude-plugin=essentials",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Plugins: 0");
+    expect(result.stdout).toContain("Files: 0");
+    expect(result.stdout).not.toContain("packs/essentials/PACK.md");
+  });
+
+  test("reports Claude migration plan option errors", async () => {
+    const cases: readonly (readonly string[])[] = [
+      ["migrate-claude", "plan", "--exclude-plugin"],
+      ["migrate-claude", "plan", "--exclude-plugin", ""],
+      ["migrate-claude", "plan", "--exclude-plugin="],
+      ["migrate-claude", "plan", "--wat"],
+      ["migrate-claude", "plan", "first", "second"],
+    ];
+
+    for (const args of cases) {
+      const result = await runCli(args);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(usage);
+    }
+  });
+
   test("returns nonzero for Claude migration scan errors", async () => {
     const rootPath = await mkdtemp(join(tmpdir(), "packport-claude-scan-"));
 
@@ -138,8 +190,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr:
-        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan|plan [root]",
+      stderr: usage,
     });
   });
 
@@ -157,8 +208,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr:
-        "Unknown command 'wat'.\nUsage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan|plan [root]",
+      stderr: `Unknown command 'wat'.\n${usage}`,
     });
   });
 });

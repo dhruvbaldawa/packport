@@ -88,6 +88,10 @@ export type ClaudeMigrationPlanResult = {
   };
 };
 
+export type ClaudeMigrationPlanOptions = {
+  readonly excludePlugins?: readonly string[];
+};
+
 type AssetConvention = {
   readonly directoryName: string;
   readonly kind: ClaudeMigrationAssetKind;
@@ -157,14 +161,29 @@ export async function scanClaudeMigrationSource(
 }
 
 /** Builds a read-only portable pack migration plan without writing source files. */
-export async function planClaudeMigration(rootPath: string): Promise<ClaudeMigrationPlanResult> {
+export async function planClaudeMigration(
+  rootPath: string,
+  options: ClaudeMigrationPlanOptions = {},
+): Promise<ClaudeMigrationPlanResult> {
   const scan = await scanClaudeMigrationSource(rootPath);
   const diagnostics = [...scan.diagnostics];
   const files: ClaudeMigrationPlanFile[] = [];
   const questions: ClaudeMigrationPlanQuestion[] = [];
   const plannedTargets = new Map<string, string>();
+  const excludedPlugins = new Set(options.excludePlugins ?? []);
+  const usedExcludedPlugins = new Set<string>();
+  let plannedAssets = 0;
+  let plannedPlugins = 0;
 
   for (const plugin of scan.plugins) {
+    if (excludedPlugins.has(plugin.name)) {
+      usedExcludedPlugins.add(plugin.name);
+      continue;
+    }
+
+    plannedAssets += plugin.assets.length;
+    plannedPlugins += 1;
+
     const packPath = join("packs", toPortableDirectoryName(plugin.name));
     const packPlanned = addPlanFile(
       files,
@@ -222,6 +241,17 @@ export async function planClaudeMigration(rootPath: string): Promise<ClaudeMigra
     }
   }
 
+  for (const excludedPlugin of [...excludedPlugins].sort(compareStrings)) {
+    if (!usedExcludedPlugins.has(excludedPlugin)) {
+      diagnostics.push({
+        code: "unused-claude-plugin-exclusion",
+        message: `No Claude plugin named ${excludedPlugin} was found to exclude.`,
+        path: rootPath,
+        severity: "warning",
+      });
+    }
+  }
+
   return {
     diagnostics,
     files,
@@ -229,9 +259,9 @@ export async function planClaudeMigration(rootPath: string): Promise<ClaudeMigra
     rootPath,
     scan,
     summary: {
-      assets: scan.summary.assets,
+      assets: plannedAssets,
       files: files.length,
-      plugins: scan.summary.plugins,
+      plugins: plannedPlugins,
       questions: questions.length,
     },
   };

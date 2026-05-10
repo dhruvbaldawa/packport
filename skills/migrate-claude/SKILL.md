@@ -19,7 +19,8 @@ Use this skill to inspect Claude Code marketplace or plugin source before writin
 6. Treat `pack-candidate` assets as normal pack source candidates, including personal or private packs.
 7. Treat known structural facts such as explicit config/security variable references, `config-path-reference`, and `script-reference` as evidence to reason from, not as automatic classifications.
 8. Call out `harness-specific`, `unsupported`, `unclear`, and fact-bearing assets as questions, not decisions.
-9. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
+9. If the user marks a whole plugin as harness-specific, rerun the plan with `--exclude-plugin <name>` before summarizing portable source files.
+10. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
 
 ## Boundaries
 

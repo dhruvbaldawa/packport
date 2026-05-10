@@ -563,6 +563,62 @@ describe("planClaudeMigration", () => {
     expect(result.questions).toEqual([]);
   });
 
+  test("excludes user-approved harness-specific plugins from portable source plans", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [
+          { name: "essentials", source: "./essentials" },
+          { name: "todoist", source: "./todoist" },
+        ],
+      }),
+      "essentials/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "essentials/commands/commit.md": "# Commit\n",
+      "todoist/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Claude-only Todoist integration",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+      "todoist/commands/search.md": "# Search\n",
+    });
+
+    const result = await planClaudeMigration(rootPath, { excludePlugins: ["todoist"] });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.scan.summary).toEqual({ assets: 2, plugins: 2 });
+    expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/commands/commit/COMMAND.md",
+    ]);
+  });
+
+  test("reports unused plugin exclusions", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/commit.md": "# Commit\n",
+    });
+
+    const result = await planClaudeMigration(rootPath, { excludePlugins: ["todoist"] });
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unused-claude-plugin-exclusion",
+      message: "No Claude plugin named todoist was found to exclude.",
+      path: rootPath,
+      severity: "warning",
+    });
+    expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
+  });
+
   test("reports target collisions after flattening nested Claude names", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
