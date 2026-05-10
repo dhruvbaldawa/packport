@@ -813,6 +813,10 @@ For v1, configport materializes selected instruction assets by using target-nati
 
 Installed instruction files must not contain unresolved `{{config.*}}`, `{{tool.*}}`, or `{{mcp.*}}` refs. `{{config.*}}` refs require configport answers or safe defaults. `{{tool.*}}` and `{{mcp.*}}` refs render to target-specific prose or native config through harness references and accepted decisions.
 
+Initial v1 materialization writes managed blocks to `CLAUDE.md` for Claude Code and to
+`AGENTS.md` for Codex and OpenCode. The output root decides whether that file is user-scope,
+project-scope, or profile-scope; pack source does not encode placement.
+
 ## Customization
 
 Customization declarations are pack-owned. Customization values are configuration-tool-owned.

@@ -1,7 +1,7 @@
 // ABOUTME: Verifies the packport check primitive and CLI wrapper.
 // ABOUTME: Covers success and failure output without making skills run logic themselves.
 
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
@@ -71,7 +71,7 @@ describe("runCli", () => {
   const opencodeUsage = "Usage: packport opencode generate <pack-root> <output-root>";
   const codexUsage = "Usage: packport codex generate <pack-root> [output-root]";
   const configportUsage =
-    "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>";
+    "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
 
   test("runs check and returns stdout", async () => {
     const rootPath = await createValidPackRepository();
@@ -444,6 +444,205 @@ describe("runCli", () => {
     expect(await readFile(join(outputPath, ".opencode/local.conf"), "utf8")).toBe(
       "theme = system\n",
     );
+  });
+
+  test("stores and materializes configport instruction selections", async () => {
+    const stateRootPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-state-"));
+    const packRootPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-packs-"));
+    const outputPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-output-"));
+    await mkdir(join(packRootPath, "packs/essentials/instructions/repo-workflow"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(packRootPath, "packs/essentials/PACK.md"),
+      `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+
+## Configuration
+
+- {{config.review_voice}} controls review tone.
+`,
+    );
+    await writeFile(
+      join(packRootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      "Project voice: {{config.review_voice}}.\n",
+    );
+
+    const putResult = await runCli([
+      "configport",
+      "instructions",
+      "put",
+      stateRootPath,
+      "personal",
+      "opencode",
+      "essentials",
+      "project",
+      "--instruction",
+      "repo-workflow",
+      "--answer",
+      "review_voice=direct",
+    ]);
+
+    expect(putResult).toEqual({
+      exitCode: 0,
+      stdout: `Stored configport instruction selection personal/opencode/essentials/project at ${join(stateRootPath, "configport.json")} with 1 instruction(s) and 1 answer(s).`,
+    });
+
+    const applyResult = await runCli([
+      "configport",
+      "instructions",
+      "apply",
+      stateRootPath,
+      packRootPath,
+      outputPath,
+      "--profile",
+      "personal",
+      "--target",
+      "opencode",
+      "--pack",
+      "essentials",
+      "--scope",
+      "project",
+    ]);
+
+    expect(applyResult).toEqual({
+      exitCode: 0,
+      stdout: `Materialized configport instructions personal/opencode/essentials/project to ${outputPath} with 1 file(s).`,
+    });
+    expect(await readFile(join(outputPath, "AGENTS.md"), "utf8")).toContain(
+      "Project voice: direct.",
+    );
+  });
+
+  test("reports configport instruction put usage errors without writing state", async () => {
+    const stateRootPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-state-"));
+
+    const missingInstruction = await runCli([
+      "configport",
+      "instructions",
+      "put",
+      stateRootPath,
+      "personal",
+      "codex",
+      "essentials",
+      "project",
+    ]);
+    const invalidTarget = await runCli([
+      "configport",
+      "instructions",
+      "put",
+      stateRootPath,
+      "personal",
+      "bad-target",
+      "essentials",
+      "project",
+      "--instruction",
+      "repo-workflow",
+    ]);
+    const invalidScope = await runCli([
+      "configport",
+      "instructions",
+      "put",
+      stateRootPath,
+      "personal",
+      "codex",
+      "essentials",
+      "bad-scope",
+      "--instruction",
+      "repo-workflow",
+    ]);
+    const unknownOption = await runCli([
+      "configport",
+      "instructions",
+      "put",
+      stateRootPath,
+      "personal",
+      "codex",
+      "essentials",
+      "project",
+      "--wat",
+    ]);
+
+    expect(missingInstruction.exitCode).toBe(1);
+    expect(missingInstruction.stdout).toContain("ERROR missing-configport-instructions");
+    expect(invalidTarget).toEqual({
+      exitCode: 1,
+      stderr: `configport instructions put target must be claude, codex, or opencode.\n${configportUsage}`,
+    });
+    expect(invalidScope).toEqual({
+      exitCode: 1,
+      stderr: `configport instructions put scope must be project or user.\n${configportUsage}`,
+    });
+    expect(unknownOption).toEqual({
+      exitCode: 1,
+      stderr: `Unknown configport instructions put option '--wat'.\n${configportUsage}`,
+    });
+    await expect(lstat(join(stateRootPath, "configport.json"))).rejects.toThrow();
+  });
+
+  test("reports configport instruction apply usage errors without writing output", async () => {
+    const stateRootPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-state-"));
+    const packRootPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-packs-"));
+    const outputPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-output-"));
+
+    const missingFlags = await runCli([
+      "configport",
+      "instructions",
+      "apply",
+      stateRootPath,
+      packRootPath,
+      outputPath,
+    ]);
+    const invalidTarget = await runCli([
+      "configport",
+      "instructions",
+      "apply",
+      stateRootPath,
+      packRootPath,
+      outputPath,
+      "--profile",
+      "personal",
+      "--target",
+      "bad-target",
+      "--pack",
+      "essentials",
+      "--scope",
+      "project",
+    ]);
+    const unknownOption = await runCli([
+      "configport",
+      "instructions",
+      "apply",
+      stateRootPath,
+      packRootPath,
+      outputPath,
+      "--profile",
+      "personal",
+      "--target",
+      "codex",
+      "--pack",
+      "essentials",
+      "--scope",
+      "project",
+      "--wat",
+    ]);
+
+    expect(missingFlags).toEqual({
+      exitCode: 1,
+      stderr: `configport instructions apply requires --profile, --target, --pack, and --scope.\n${configportUsage}`,
+    });
+    expect(invalidTarget).toEqual({
+      exitCode: 1,
+      stderr: `configport instructions apply target must be claude, codex, or opencode.\n${configportUsage}`,
+    });
+    expect(unknownOption).toEqual({
+      exitCode: 1,
+      stderr: `Unknown configport instructions apply option '--wat'.\n${configportUsage}`,
+    });
+    await expect(lstat(join(outputPath, "AGENTS.md"))).rejects.toThrow();
   });
 
   test("reports configport usage errors", async () => {

@@ -16,7 +16,9 @@ export {
   applyConfigportOverlay,
   CONFIGPORT_STATE_FILE,
   formatConfigportDiagnostics,
+  materializeConfigportInstructions,
   readConfigportState,
+  writeConfigportInstructionSelection,
   writeConfigportOverlay,
 } from "./core/configport";
 export {
@@ -76,11 +78,16 @@ export type {
   ApplyConfigportOverlayOptions,
   ApplyConfigportOverlayResult,
   ConfigportFileOverlay,
+  ConfigportInstructionScope,
+  ConfigportInstructionSelection,
   ConfigportOverlay,
   ConfigportOverlaySelector,
   ConfigportReplacement,
   ConfigportState,
   WriteConfigportOverlayResult,
+  MaterializeConfigportInstructionsOptions,
+  MaterializeConfigportInstructionsResult,
+  WriteConfigportInstructionSelectionResult,
 } from "./core/configport";
 export type {
   ClaudeControlMarketplaceEntry,

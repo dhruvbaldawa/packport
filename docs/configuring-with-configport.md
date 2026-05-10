@@ -15,6 +15,7 @@ It can contain:
 
 - replacements: exact text substitutions applied to generated files.
 - files: local files written into the materialized output tree.
+- instruction selections: chosen `INSTRUCTION.md` assets plus local `config.*` answers.
 
 The state file is named `configport.json` and lives under the state root you choose.
 
@@ -59,6 +60,33 @@ This copies generated files from `.packs/codex/essentials`, applies replacements
 files, and writes the result to `.materialized/codex/essentials`.
 
 The output path must not be the generated package path or inside it.
+
+## Materialize Instructions
+
+Store selected runtime instruction assets separately from generated package overlays:
+
+```bash
+bun src/cli.ts configport instructions put .configport personal codex essentials project \
+  --instruction repo-workflow \
+  --answer "review_voice=direct reviewer prose"
+```
+
+Then materialize them into the target scope root:
+
+```bash
+bun src/cli.ts configport instructions apply .configport . .materialized/codex/project \
+  --profile personal \
+  --target codex \
+  --pack essentials \
+  --scope project
+```
+
+For Claude Code, configport writes a managed block to `CLAUDE.md`. For Codex and OpenCode, it
+writes a managed block to `AGENTS.md`. Existing unmanaged file content is preserved; rerunning
+instruction apply replaces only the matching packport managed block.
+
+Instruction materialization renders `{{config.*}}`, `{{tool.*}}`, and `{{mcp.*}}` refs before
+writing. Missing answers or leftover portable refs block the write.
 
 ## What Not To Do
 

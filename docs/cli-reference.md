@@ -118,3 +118,27 @@ packport configport apply <state-root> <generated> <output> \
 
 Copies generated output to a materialized output tree, applies replacements, and adds overlay
 files for the selected overlay.
+
+## configport instructions put
+
+```bash
+packport configport instructions put <state-root> <profile> <target> <pack> <scope> \
+  --instruction <name>... \
+  [--answer <key=value>]...
+```
+
+Stores selected `INSTRUCTION.md` assets and local `config.*` answers in
+`<state-root>/configport.json`.
+
+## configport instructions apply
+
+```bash
+packport configport instructions apply <state-root> <pack-root> <output> \
+  --profile <profile> \
+  --target <target> \
+  --pack <pack> \
+  --scope <scope>
+```
+
+Renders selected instruction assets and writes a managed block to the target instruction file under
+`<output>`.

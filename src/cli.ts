@@ -14,8 +14,12 @@ import { generateCodexOutput, formatCodexDiagnostics } from "./core/codex";
 import {
   applyConfigportOverlay,
   formatConfigportDiagnostics,
+  materializeConfigportInstructions,
+  writeConfigportInstructionSelection,
   writeConfigportOverlay,
   type ConfigportFileOverlay,
+  type ConfigportInstructionScope,
+  type ConfigportInstructionSelection,
   type ConfigportOverlay,
   type ConfigportReplacement,
 } from "./core/configport";
@@ -24,6 +28,7 @@ import {
   generateClaudeControlPlugin,
   type ControlPluginKind,
 } from "./core/control-plugin";
+import type { HarnessTarget } from "./core/harness-refs";
 import { generateOpenCodeOutput } from "./core/opencode";
 
 const PACKAGE_VERSION = "0.0.0";
@@ -33,7 +38,7 @@ const USAGE =
 const OPENCODE_USAGE = "Usage: packport opencode generate <pack-root> <output-root>";
 const CODEX_USAGE = "Usage: packport codex generate <pack-root> [output-root]";
 const CONFIGPORT_USAGE =
-  "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>";
+  "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
 
 type ParsedClaudeMigrationArgs =
   | {
@@ -61,6 +66,27 @@ type ParsedConfigportApplyArgs =
       readonly stateRootPath: string;
       readonly status: "ok";
       readonly target: string;
+    }
+  | { readonly message: string; readonly status: "error" };
+
+type ParsedConfigportInstructionsPutArgs =
+  | {
+      readonly selection: ConfigportInstructionSelection;
+      readonly stateRootPath: string;
+      readonly status: "ok";
+    }
+  | { readonly message: string; readonly status: "error" };
+
+type ParsedConfigportInstructionsApplyArgs =
+  | {
+      readonly outputPath: string;
+      readonly pack: string;
+      readonly packRootPath: string;
+      readonly profile: string;
+      readonly scope: ConfigportInstructionScope;
+      readonly stateRootPath: string;
+      readonly status: "ok";
+      readonly target: HarnessTarget;
     }
   | { readonly message: string; readonly status: "error" };
 
@@ -314,6 +340,45 @@ async function runConfigportCli(args: readonly string[]): Promise<CliResult> {
     };
   }
 
+  if (subcommand === "instructions" && action === "put") {
+    const parsed = parseConfigportInstructionsPutArgs(args.slice(2));
+
+    if (parsed.status === "error") {
+      return { exitCode: 1, stderr: `${parsed.message}\n${CONFIGPORT_USAGE}` };
+    }
+
+    const result = await writeConfigportInstructionSelection(
+      parsed.stateRootPath,
+      parsed.selection,
+    );
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = formatConfigportDiagnostics(result.diagnostics);
+    const summary = `Stored configport instruction selection ${parsed.selection.profile}/${parsed.selection.target}/${parsed.selection.pack}/${parsed.selection.scope} at ${result.statePath} with ${result.summary.instructions} instruction(s) and ${result.summary.answers} answer(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: result.diagnostics.length > 0 ? diagnostics : summary,
+    };
+  }
+
+  if (subcommand === "instructions" && action === "apply") {
+    const parsed = parseConfigportInstructionsApplyArgs(args.slice(2));
+
+    if (parsed.status === "error") {
+      return { exitCode: 1, stderr: `${parsed.message}\n${CONFIGPORT_USAGE}` };
+    }
+
+    const result = await materializeConfigportInstructions(parsed);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = formatConfigportDiagnostics(result.diagnostics);
+    const summary = `Materialized configport instructions ${parsed.profile}/${parsed.target}/${parsed.pack}/${parsed.scope} to ${result.outputPath} with ${result.summary.files} file(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: result.diagnostics.length > 0 ? diagnostics : summary,
+    };
+  }
+
   return { exitCode: 1, stderr: CONFIGPORT_USAGE };
 }
 
@@ -508,6 +573,264 @@ function parseConfigportApplyArgs(args: readonly string[]): ParsedConfigportAppl
     status: "ok",
     target,
   };
+}
+
+function parseConfigportInstructionsPutArgs(
+  args: readonly string[],
+): ParsedConfigportInstructionsPutArgs {
+  const answers: Record<string, string> = {};
+  const instructions: string[] = [];
+  const paths: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--instruction") {
+      const value = args[index + 1];
+
+      if (value === undefined || value === "" || value.startsWith("--")) {
+        return { message: "--instruction requires an instruction name.", status: "error" };
+      }
+
+      instructions.push(value);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--instruction=")) {
+      const value = arg.slice("--instruction=".length);
+
+      if (value === "") {
+        return { message: "--instruction requires an instruction name.", status: "error" };
+      }
+
+      instructions.push(value);
+      continue;
+    }
+
+    if (arg === "--answer") {
+      const value = args[index + 1];
+
+      if (value === undefined || value === "" || value.startsWith("--")) {
+        return { message: "--answer requires key=value.", status: "error" };
+      }
+
+      const answer = parseAssignment(value, "--answer");
+
+      if (answer.status === "error") {
+        return answer;
+      }
+
+      answers[answer.left] = answer.right;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--answer=")) {
+      const answer = parseAssignment(arg.slice("--answer=".length), "--answer");
+
+      if (answer.status === "error") {
+        return answer;
+      }
+
+      answers[answer.left] = answer.right;
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      return { message: `Unknown configport instructions put option '${arg}'.`, status: "error" };
+    }
+
+    paths.push(arg);
+  }
+
+  if (paths.length !== 5) {
+    return {
+      message: "configport instructions put requires state-root, profile, target, pack, and scope.",
+      status: "error",
+    };
+  }
+
+  const [stateRootPath, profile, targetValue, pack, scopeValue] = paths;
+  const target = parseHarnessTarget(targetValue);
+  const scope = parseInstructionScope(scopeValue);
+
+  if (targetValue !== undefined && target === undefined) {
+    return {
+      message: "configport instructions put target must be claude, codex, or opencode.",
+      status: "error",
+    };
+  }
+
+  if (scopeValue !== undefined && scope === undefined) {
+    return {
+      message: "configport instructions put scope must be project or user.",
+      status: "error",
+    };
+  }
+
+  if (
+    stateRootPath === undefined ||
+    profile === undefined ||
+    pack === undefined ||
+    target === undefined ||
+    scope === undefined
+  ) {
+    return {
+      message: "configport instructions put requires state-root, profile, target, pack, and scope.",
+      status: "error",
+    };
+  }
+
+  return {
+    selection: { answers, instructions, pack, profile, scope, target },
+    stateRootPath,
+    status: "ok",
+  };
+}
+
+function parseConfigportInstructionsApplyArgs(
+  args: readonly string[],
+): ParsedConfigportInstructionsApplyArgs {
+  const paths: string[] = [];
+  let pack: string | undefined;
+  let profile: string | undefined;
+  let scope: ConfigportInstructionScope | undefined;
+  let target: HarnessTarget | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--profile" || arg === "--target" || arg === "--pack" || arg === "--scope") {
+      const value = args[index + 1];
+
+      if (value === undefined || value === "" || value.startsWith("--")) {
+        return { message: `${arg} requires a value.`, status: "error" };
+      }
+
+      if (arg === "--profile") {
+        profile = value;
+      } else if (arg === "--target") {
+        target = parseHarnessTarget(value);
+
+        if (target === undefined) {
+          return {
+            message: "configport instructions apply target must be claude, codex, or opencode.",
+            status: "error",
+          };
+        }
+      } else if (arg === "--scope") {
+        scope = parseInstructionScope(value);
+
+        if (scope === undefined) {
+          return {
+            message: "configport instructions apply scope must be project or user.",
+            status: "error",
+          };
+        }
+      } else {
+        pack = value;
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--profile=")) {
+      profile = arg.slice("--profile=".length);
+      continue;
+    }
+
+    if (arg.startsWith("--target=")) {
+      const value = arg.slice("--target=".length);
+      target = parseHarnessTarget(value);
+
+      if (target === undefined) {
+        return {
+          message: "configport instructions apply target must be claude, codex, or opencode.",
+          status: "error",
+        };
+      }
+      continue;
+    }
+
+    if (arg.startsWith("--pack=")) {
+      pack = arg.slice("--pack=".length);
+      continue;
+    }
+
+    if (arg.startsWith("--scope=")) {
+      const value = arg.slice("--scope=".length);
+      scope = parseInstructionScope(value);
+
+      if (scope === undefined) {
+        return {
+          message: "configport instructions apply scope must be project or user.",
+          status: "error",
+        };
+      }
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      return {
+        message: `Unknown configport instructions apply option '${arg}'.`,
+        status: "error",
+      };
+    }
+
+    paths.push(arg);
+  }
+
+  if (paths.length !== 3) {
+    return {
+      message: "configport instructions apply requires state-root, pack-root, and output paths.",
+      status: "error",
+    };
+  }
+
+  if (!profile || !target || !pack || !scope) {
+    return {
+      message: "configport instructions apply requires --profile, --target, --pack, and --scope.",
+      status: "error",
+    };
+  }
+
+  const [stateRootPath, packRootPath, outputPath] = paths;
+
+  if (stateRootPath === undefined || packRootPath === undefined || outputPath === undefined) {
+    return {
+      message: "configport instructions apply requires state-root, pack-root, and output paths.",
+      status: "error",
+    };
+  }
+
+  return {
+    outputPath,
+    pack,
+    packRootPath,
+    profile,
+    scope,
+    stateRootPath,
+    status: "ok",
+    target,
+  };
+}
+
+function parseHarnessTarget(value: string | undefined): HarnessTarget | undefined {
+  return value === "claude" || value === "codex" || value === "opencode" ? value : undefined;
+}
+
+function parseInstructionScope(value: string | undefined): ConfigportInstructionScope | undefined {
+  return value === "project" || value === "user" ? value : undefined;
 }
 
 type ParsedAssignment =
