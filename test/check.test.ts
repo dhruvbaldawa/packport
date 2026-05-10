@@ -96,7 +96,7 @@ describe("runCli", () => {
     expect(result).toEqual({
       exitCode: 1,
       stderr:
-        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]",
+        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan|plan [root]",
     });
   });
 
@@ -109,6 +109,19 @@ describe("runCli", () => {
     expect(result.stdout).toContain("Claude migration scan:");
     expect(result.stdout).toContain("Plugins: 1");
     expect(result.stdout).toContain("command essentials/commit pack-candidate commands/commit.md");
+  });
+
+  test("runs Claude migration dry-run plans", async () => {
+    const rootPath = await createClaudePluginRepository();
+
+    const result = await runCli(["migrate-claude", "plan", rootPath]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Claude migration plan:");
+    expect(result.stdout).toContain("Files: 2");
+    expect(result.stdout).toContain(
+      `copy ${join(rootPath, "commands/commit.md")} -> packs/essentials/commands/commit/COMMAND.md`,
+    );
   });
 
   test("returns nonzero for Claude migration scan errors", async () => {
@@ -126,7 +139,7 @@ describe("runCli", () => {
     expect(result).toEqual({
       exitCode: 1,
       stderr:
-        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]",
+        "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan|plan [root]",
     });
   });
 
@@ -145,7 +158,7 @@ describe("runCli", () => {
     expect(result).toEqual({
       exitCode: 1,
       stderr:
-        "Unknown command 'wat'.\nUsage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan [root]",
+        "Unknown command 'wat'.\nUsage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport migrate-claude scan|plan [root]",
     });
   });
 });

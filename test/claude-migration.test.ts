@@ -5,7 +5,12 @@ import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { formatClaudeMigrationScan, scanClaudeMigrationSource } from "../src/core/claude-migration";
+import {
+  formatClaudeMigrationPlan,
+  formatClaudeMigrationScan,
+  planClaudeMigration,
+  scanClaudeMigrationSource,
+} from "../src/core/claude-migration";
 
 describe("scanClaudeMigrationSource", () => {
   test("scans Claude marketplace plugins and supported assets", async () => {
@@ -309,6 +314,195 @@ describe("formatClaudeMigrationScan", () => {
         "Assets: 1",
         `essentials@1.0.0 ${rootPath}`,
         "command essentials/commit pack-candidate commands/commit.md",
+      ].join("\n"),
+    );
+  });
+});
+
+describe("planClaudeMigration", () => {
+  test("plans portable pack files without writing them", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "agents/research/depth.md": "# Research Depth\n",
+      "commands/commit.md": "# Commit\n",
+      "commands/frontend/component.md": "# Component\n",
+      "skills/debugging/SKILL.md": "# Debugging\n",
+      "skills/debugging/reference/examples.md": "# Examples\n",
+    });
+
+    const result = await planClaudeMigration(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 4, files: 6, plugins: 1, questions: 4 });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/agents/research-depth/AGENT.md",
+      "packs/essentials/commands/commit/COMMAND.md",
+      "packs/essentials/commands/frontend-component/COMMAND.md",
+      "packs/essentials/skills/debugging/SKILL.md",
+      "packs/essentials/skills/debugging/reference/examples.md",
+    ]);
+    expect(result.files[1]).toMatchObject({
+      action: "copy",
+      sourcePath: join(rootPath, "agents/research/depth.md"),
+    });
+    expect(result.questions.map((question) => question.asset.name)).toEqual([
+      "research/depth",
+      "commit",
+      "frontend/component",
+      "debugging",
+    ]);
+  });
+
+  test("reports target collisions after flattening nested Claude names", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/foo/bar.md": "# Nested\n",
+      "commands/foo-bar.md": "# Flat\n",
+    });
+
+    const result = await planClaudeMigration(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "migration-target-collision",
+      message: `Migration plan target collides with ${join(rootPath, "commands/foo/bar.md")}.`,
+      path: join(rootPath, "commands/foo-bar.md"),
+      severity: "error",
+    });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/commands/foo-bar/COMMAND.md",
+    ]);
+  });
+
+  test("keeps config-looking skill support files out of pack payload plans", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "skills/debugging/SKILL.md": "# Debugging\n",
+      "skills/debugging/reference/examples.md": "# Examples\n",
+      "skills/debugging/settings.json": "{}\n",
+    });
+
+    const result = await planClaudeMigration(rootPath);
+
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/skills/debugging/SKILL.md",
+      "packs/essentials/skills/debugging/reference/examples.md",
+    ]);
+    expect(result.questions).toContainEqual({
+      asset: {
+        classification: "configuration-candidate",
+        kind: "skill",
+        name: "debugging",
+        path: "skills/debugging/settings.json",
+        pluginName: "essentials",
+      },
+      message:
+        "Decide how this support file should be represented in configport instead of pack source.",
+      reasons: ["Support file path looks like configuration state."],
+    });
+  });
+
+  test("sanitizes skill support filenames before planning target paths", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "skills/debugging/..\\..\\outside.md": "# Strange Filename\n",
+      "skills/debugging/SKILL.md": "# Debugging\n",
+    });
+
+    const result = await planClaudeMigration(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/skills/debugging/unnamed/unnamed/outside.md",
+      "packs/essentials/skills/debugging/SKILL.md",
+    ]);
+  });
+
+  test("skips assets after plugin pack directory collisions", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [
+          { name: "my-pack", source: "./first" },
+          { name: "my pack", source: "./second" },
+        ],
+      }),
+      "first/.claude-plugin/plugin.json": JSON.stringify({
+        description: "First",
+        name: "my-pack",
+        version: "1.0.0",
+      }),
+      "first/commands/first.md": "# First\n",
+      "second/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Second",
+        name: "my pack",
+        version: "1.0.0",
+      }),
+      "second/commands/second.md": "# Second\n",
+    });
+
+    const result = await planClaudeMigration(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "migration-target-collision",
+      message: `Migration plan target collides with ${join(rootPath, "first")}.`,
+      path: join(rootPath, "second"),
+      severity: "error",
+    });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/my-pack/PACK.md",
+      "packs/my-pack/commands/first/COMMAND.md",
+    ]);
+  });
+});
+
+describe("formatClaudeMigrationPlan", () => {
+  test("formats dry-run migration plans deterministically", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "commands/commit.md": "# Commit\n",
+    });
+
+    const report = formatClaudeMigrationPlan(await planClaudeMigration(rootPath));
+
+    expect(report).toBe(
+      [
+        `Claude migration plan: ${rootPath}`,
+        "Plugins: 1",
+        "Assets: 1",
+        "Files: 2",
+        "Questions: 1",
+        "create packs/essentials/PACK.md",
+        `copy ${join(rootPath, "commands/commit.md")} -> packs/essentials/commands/commit/COMMAND.md`,
+        "question pack-candidate essentials/commit: Confirm this convention-supported Claude asset should become portable pack source.",
       ].join("\n"),
     );
   });

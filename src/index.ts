@@ -4,7 +4,12 @@
 export const packageName = "packport";
 export const packageVersion = "0.0.0";
 
-export { formatClaudeMigrationScan, scanClaudeMigrationSource } from "./core/claude-migration";
+export {
+  formatClaudeMigrationPlan,
+  formatClaudeMigrationScan,
+  planClaudeMigration,
+  scanClaudeMigrationSource,
+} from "./core/claude-migration";
 export { checkPackRepository, formatDiagnostics } from "./core/check";
 export {
   CONTROL_PLUGIN_NAME,
@@ -27,6 +32,9 @@ export type {
   ClaudeMigrationAsset,
   ClaudeMigrationAssetKind,
   ClaudeMigrationClassification,
+  ClaudeMigrationPlanFile,
+  ClaudeMigrationPlanQuestion,
+  ClaudeMigrationPlanResult,
   ClaudeMigrationPlugin,
   ClaudeMigrationScanResult,
 } from "./core/claude-migration";

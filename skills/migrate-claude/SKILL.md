@@ -13,11 +13,12 @@ Use this skill to inspect Claude Code marketplace or plugin source before writin
 
 1. Identify the Claude source path. Accept a marketplace repository root or a single plugin directory.
 2. Run `packport migrate-claude scan <path>`.
-3. If working from the packport source tree before a binary is installed, run `bun src/cli.ts migrate-claude scan <path>`.
-4. Summarize discovered plugins and assets by kind.
-5. Treat `pack-candidate` assets as normal pack source candidates, including personal or private packs.
-6. Call out `configuration-candidate`, `harness-specific`, `unsupported`, and `unclear` assets as questions, not decisions.
-7. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
+3. Run `packport migrate-claude plan <path>` to preview the portable file layout without writing source.
+4. If working from the packport source tree before a binary is installed, use `bun src/cli.ts migrate-claude scan <path>` and `bun src/cli.ts migrate-claude plan <path>`.
+5. Summarize discovered plugins, planned files, target collisions, and decision questions.
+6. Treat `pack-candidate` assets as normal pack source candidates, including personal or private packs.
+7. Call out `configuration-candidate`, `harness-specific`, `unsupported`, and `unclear` assets as questions, not decisions.
+8. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
 
 ## Boundaries
 

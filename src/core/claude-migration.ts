@@ -3,7 +3,7 @@
 
 import { lstat, readdir, readFile } from "node:fs/promises";
 import type { Dirent } from "node:fs";
-import { basename, extname, isAbsolute, join, relative } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative } from "node:path";
 import type { Diagnostic } from "./types";
 
 export type ClaudeMigrationAssetKind = "agent" | "command" | "skill";
@@ -40,6 +40,39 @@ export type ClaudeMigrationScanResult = {
   readonly summary: {
     readonly assets: number;
     readonly plugins: number;
+  };
+};
+
+export type ClaudeMigrationPlanFile = {
+  readonly action: "copy" | "create";
+  readonly description: string;
+  readonly sourcePath?: string;
+  readonly targetPath: string;
+};
+
+export type ClaudeMigrationPlanQuestion = {
+  readonly asset: {
+    readonly classification: ClaudeMigrationClassification;
+    readonly kind: ClaudeMigrationAssetKind;
+    readonly name: string;
+    readonly path: string;
+    readonly pluginName: string;
+  };
+  readonly message: string;
+  readonly reasons: readonly string[];
+};
+
+export type ClaudeMigrationPlanResult = {
+  readonly diagnostics: readonly Diagnostic[];
+  readonly files: readonly ClaudeMigrationPlanFile[];
+  readonly questions: readonly ClaudeMigrationPlanQuestion[];
+  readonly rootPath: string;
+  readonly scan: ClaudeMigrationScanResult;
+  readonly summary: {
+    readonly assets: number;
+    readonly files: number;
+    readonly plugins: number;
+    readonly questions: number;
   };
 };
 
@@ -106,6 +139,86 @@ export async function scanClaudeMigrationSource(
   return { diagnostics, plugins, rootPath, summary: { assets, plugins: plugins.length } };
 }
 
+/** Builds a read-only portable pack migration plan without writing source files. */
+export async function planClaudeMigration(rootPath: string): Promise<ClaudeMigrationPlanResult> {
+  const scan = await scanClaudeMigrationSource(rootPath);
+  const diagnostics = [...scan.diagnostics];
+  const files: ClaudeMigrationPlanFile[] = [];
+  const questions: ClaudeMigrationPlanQuestion[] = [];
+  const plannedTargets = new Map<string, string>();
+
+  for (const plugin of scan.plugins) {
+    const packPath = join("packs", toPortableDirectoryName(plugin.name));
+    const packPlanned = addPlanFile(
+      files,
+      diagnostics,
+      plannedTargets,
+      {
+        action: "create",
+        description: `Create portable PACK.md for ${plugin.name}@${plugin.version}.`,
+        targetPath: slashPath(join(packPath, "PACK.md")),
+      },
+      plugin.path,
+    );
+
+    if (!packPlanned) {
+      continue;
+    }
+
+    for (const asset of plugin.assets) {
+      const assetPath = join(
+        packPath,
+        assetKindDirectory(asset.kind),
+        toPortableDirectoryName(asset.name),
+      );
+      const payloads = await collectPlannedPayloads(plugin, asset, diagnostics, questions);
+
+      for (const payload of payloads) {
+        addPlanFile(
+          files,
+          diagnostics,
+          plannedTargets,
+          {
+            action: "copy",
+            description: `Copy ${asset.kind} payload for ${plugin.name}/${asset.name}.`,
+            sourcePath: payload.sourcePath,
+            targetPath: slashPath(join(assetPath, payload.targetPath)),
+          },
+          payload.sourcePath,
+        );
+      }
+
+      if (asset.decisionRequired) {
+        questions.push({
+          asset: {
+            classification: asset.classification,
+            kind: asset.kind,
+            name: asset.name,
+            path: asset.path,
+            pluginName: plugin.name,
+          },
+          message: decisionQuestionFor(asset),
+          reasons: asset.reasons,
+        });
+      }
+    }
+  }
+
+  return {
+    diagnostics,
+    files,
+    questions,
+    rootPath,
+    scan,
+    summary: {
+      assets: scan.summary.assets,
+      files: files.length,
+      plugins: scan.summary.plugins,
+      questions: questions.length,
+    },
+  };
+}
+
 /** Chooses marketplace or standalone plugin scanning based on source files present. */
 async function scanRoot(
   rootPath: string,
@@ -153,6 +266,39 @@ export function formatClaudeMigrationScan(result: ClaudeMigrationScanResult): st
         `${asset.kind} ${asset.pluginName}/${asset.name} ${asset.classification} ${asset.path}`,
       );
     }
+  }
+
+  for (const diagnostic of result.diagnostics) {
+    lines.push(
+      `${diagnostic.severity.toUpperCase()} ${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+/** Formats a read-only Claude migration plan as deterministic text. */
+export function formatClaudeMigrationPlan(result: ClaudeMigrationPlanResult): string {
+  const lines = [
+    `Claude migration plan: ${result.rootPath}`,
+    `Plugins: ${result.summary.plugins}`,
+    `Assets: ${result.summary.assets}`,
+    `Files: ${result.summary.files}`,
+    `Questions: ${result.summary.questions}`,
+  ];
+
+  for (const file of result.files) {
+    lines.push(
+      file.sourcePath
+        ? `${file.action} ${file.sourcePath} -> ${file.targetPath}`
+        : `${file.action} ${file.targetPath}`,
+    );
+  }
+
+  for (const question of result.questions) {
+    lines.push(
+      `question ${question.asset.classification} ${question.asset.pluginName}/${question.asset.name}: ${question.message}`,
+    );
   }
 
   for (const diagnostic of result.diagnostics) {
@@ -404,7 +550,7 @@ function classifyAsset(
     };
   }
 
-  if (CONFIGURATION_SIGNALS.some((signal) => bodyText.includes(signal))) {
+  if (hasConfigurationSignal(bodyText)) {
     return {
       classification: "configuration-candidate",
       decisionRequired: true,
@@ -419,6 +565,198 @@ function classifyAsset(
       "Claude asset uses a supported pack convention; user must confirm migration placement.",
     ],
   };
+}
+
+type PlannedPayload = {
+  readonly sourcePath: string;
+  readonly targetPath: string;
+};
+
+/** Adds one planned file while detecting target path collisions deterministically. */
+function addPlanFile(
+  files: ClaudeMigrationPlanFile[],
+  diagnostics: Diagnostic[],
+  plannedTargets: Map<string, string>,
+  file: ClaudeMigrationPlanFile,
+  sourcePath: string,
+): boolean {
+  const existingSource = plannedTargets.get(file.targetPath);
+
+  if (existingSource !== undefined) {
+    diagnostics.push({
+      code: "migration-target-collision",
+      message: `Migration plan target collides with ${existingSource}.`,
+      path: sourcePath,
+      severity: "error",
+    });
+    return false;
+  }
+
+  plannedTargets.set(file.targetPath, sourcePath);
+  files.push(file);
+  return true;
+}
+
+/** Collects primary and same-directory support files that would become asset payloads. */
+async function collectPlannedPayloads(
+  plugin: ClaudeMigrationPlugin,
+  asset: ClaudeMigrationAsset,
+  diagnostics: Diagnostic[],
+  questions: ClaudeMigrationPlanQuestion[],
+): Promise<PlannedPayload[]> {
+  const sourcePath = join(plugin.path, asset.path);
+
+  if (asset.kind !== "skill") {
+    return [{ sourcePath, targetPath: payloadFileName(asset.kind) }];
+  }
+
+  const sourceDirectory = dirname(sourcePath);
+  const files = await collectSkillPayloadFiles(sourceDirectory, diagnostics);
+
+  return files.flatMap((file) => {
+    const sourceRelativePath = relativePath(sourceDirectory, file);
+    const targetPath = toPortableSupportPath(sourceDirectory, file);
+
+    if (hasConfigurationSignal(sourceRelativePath)) {
+      questions.push({
+        asset: {
+          classification: "configuration-candidate",
+          kind: asset.kind,
+          name: asset.name,
+          path: relativePath(plugin.path, file),
+          pluginName: plugin.name,
+        },
+        message:
+          "Decide how this support file should be represented in configport instead of pack source.",
+        reasons: ["Support file path looks like configuration state."],
+      });
+      return [];
+    }
+
+    return [{ sourcePath: file, targetPath }];
+  });
+}
+
+/** Recursively collects regular files under a Claude skill directory. */
+async function collectSkillPayloadFiles(
+  directoryPath: string,
+  diagnostics: Diagnostic[],
+): Promise<string[]> {
+  const entries = await safeSortedDirectoryEntries(directoryPath);
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const path = join(directoryPath, entry.name);
+
+    if (entry.isDirectory()) {
+      files.push(...(await collectSkillPayloadFiles(path, diagnostics)));
+      continue;
+    }
+
+    if (entry.isFile()) {
+      files.push(path);
+      continue;
+    }
+
+    diagnostics.push({
+      code: "unsupported-claude-source",
+      message: "Claude skill support files must be regular files.",
+      path,
+      severity: "error",
+    });
+  }
+
+  return files.sort(compareStrings);
+}
+
+/** Returns the target payload filename for one portable asset kind. */
+function payloadFileName(kind: ClaudeMigrationAssetKind): string {
+  if (kind === "agent") {
+    return "AGENT.md";
+  }
+
+  if (kind === "command") {
+    return "COMMAND.md";
+  }
+
+  return "SKILL.md";
+}
+
+/** Returns the target asset directory for one portable asset kind. */
+function assetKindDirectory(kind: ClaudeMigrationAssetKind): string {
+  if (kind === "agent") {
+    return "agents";
+  }
+
+  if (kind === "command") {
+    return "commands";
+  }
+
+  return "skills";
+}
+
+/** Converts plugin and asset names into one safe portable source directory name. */
+function toPortableDirectoryName(name: string): string {
+  const segments = name.split(/[\\/]+/).map(toPortablePathSegment);
+  return segments.join("-");
+}
+
+/** Converts one path segment into a safe portable source directory segment. */
+function toPortablePathSegment(segment: string): string {
+  const safeSegment = segment
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "");
+
+  return safeSegment === "" ? "unnamed" : safeSegment;
+}
+
+/** Converts a support-file path into safe target-relative segments. */
+function toPortableSupportPath(rootPath: string, path: string): string {
+  return relative(rootPath, path)
+    .split(/[\\/]+/)
+    .map(toPortableSupportSegment)
+    .join("/");
+}
+
+/** Sanitizes support-file path segments without lowercasing payload filenames. */
+function toPortableSupportSegment(segment: string): string {
+  const safeSegment = segment
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "");
+
+  return safeSegment === "" ? "unnamed" : safeSegment;
+}
+
+/** Returns the migration question for one classified asset. */
+function decisionQuestionFor(asset: ClaudeMigrationAsset): string {
+  if (asset.classification === "configuration-candidate") {
+    return "Decide which parts are pack source versus configport-managed values.";
+  }
+
+  if (asset.classification === "harness-specific") {
+    return "Decide how this Claude-specific behavior should map to portable pack source.";
+  }
+
+  if (asset.classification === "unsupported") {
+    return "Decide whether this source can be represented as a portable pack asset.";
+  }
+
+  if (asset.classification === "unclear") {
+    return "Decide how this asset should be migrated.";
+  }
+
+  return "Confirm this convention-supported Claude asset should become portable pack source.";
+}
+
+/** Checks strings for config-state signals shared by body and support-file classification. */
+function hasConfigurationSignal(value: string): boolean {
+  const normalizedValue = value.toLowerCase();
+  return CONFIGURATION_SIGNALS.some((signal) => normalizedValue.includes(signal));
 }
 
 /** Returns marketplace entries after validating source paths before use. */
