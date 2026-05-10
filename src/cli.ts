@@ -10,6 +10,7 @@ import {
   writeClaudeMigration,
 } from "./core/claude-migration";
 import { checkPackRepository, formatDiagnostics } from "./core/check";
+import { generateCodexOutput, formatCodexDiagnostics } from "./core/codex";
 import {
   applyConfigportOverlay,
   formatConfigportDiagnostics,
@@ -26,6 +27,7 @@ const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
 const USAGE =
   "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
 const OPENCODE_USAGE = "Usage: packport opencode generate <pack-root> <output-root>";
+const CODEX_USAGE = "Usage: packport codex generate <pack-root> [output-root]";
 const CONFIGPORT_USAGE =
   "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>";
 
@@ -224,13 +226,35 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     };
   }
 
+  if (command === "codex") {
+    const [subcommand, rootPath, outputPath] = args;
+
+    if (subcommand !== "generate" || rootPath === undefined) {
+      return { exitCode: 1, stderr: CODEX_USAGE };
+    }
+
+    if (args.length > 3) {
+      return { exitCode: 1, stderr: CODEX_USAGE };
+    }
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    const diagnostics = formatCodexDiagnostics(result.diagnostics);
+    const summary = `Generated Codex output at ${result.outputPath} with ${result.summary.plugins} plugin(s), ${result.summary.skills} skill(s), ${result.summary.agents} agent(s), and ${result.summary.marketplaceEntries} marketplace entry(s).`;
+
+    return {
+      exitCode: ok ? 0 : 1,
+      stdout: result.diagnostics.length > 0 ? `${summary}\n${diagnostics}` : summary,
+    };
+  }
+
   if (command === "configport") {
     return await runConfigportCli(args);
   }
 
   return {
     exitCode: 1,
-    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${OPENCODE_USAGE}\n${CONFIGPORT_USAGE}`,
+    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${OPENCODE_USAGE}\n${CODEX_USAGE}\n${CONFIGPORT_USAGE}`,
   };
 }
 

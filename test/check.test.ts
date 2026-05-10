@@ -65,6 +65,7 @@ describe("runCli", () => {
   const usage =
     "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
   const opencodeUsage = "Usage: packport opencode generate <pack-root> <output-root>";
+  const codexUsage = "Usage: packport codex generate <pack-root> [output-root]";
   const configportUsage =
     "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>";
 
@@ -94,6 +95,29 @@ describe("runCli", () => {
     expect(await readFile(join(outputPath, "skills/check-pack/SKILL.md"), "utf8")).toStartWith(
       "---\nname: check-pack",
     );
+  });
+
+  test("treats exact packport control plugin argument as an output path", async () => {
+    const previousCwd = process.cwd();
+    const cwd = await mkdtemp(join(tmpdir(), "packport-cli-control-cwd-"));
+
+    try {
+      process.chdir(cwd);
+
+      const result = await runCli(["control-plugin", "claude", "packport"]);
+
+      expect(result).toEqual({
+        exitCode: 0,
+        stdout: "Generated Claude control plugin at packport with 2 skill(s).",
+      });
+      expect(
+        JSON.parse(await readFile(join(cwd, "packport/.claude-plugin/plugin.json"), "utf8")),
+      ).toMatchObject({
+        name: "packport",
+      });
+    } finally {
+      process.chdir(previousCwd);
+    }
   });
 
   test("generates the Claude configport control plugin", async () => {
@@ -301,6 +325,44 @@ describe("runCli", () => {
     expect(result).toEqual({ exitCode: 1, stderr: opencodeUsage });
   });
 
+  test("generates Codex output and marketplace metadata", async () => {
+    const rootPath = await createValidPackRepository();
+
+    const result = await runCli(["codex", "generate", rootPath]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(
+      `Generated Codex output at ${join(rootPath, ".packs/codex")} with 1 plugin(s), 1 skill(s), 0 agent(s), and 1 marketplace entry(s).`,
+    );
+    expect(
+      JSON.parse(
+        await readFile(join(rootPath, ".packs/codex/essentials/.codex-plugin/plugin.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      name: "essentials",
+      version: "1.0.0",
+    });
+    expect(
+      await readFile(join(rootPath, ".packs/codex/essentials/skills/commit/SKILL.md"), "utf8"),
+    ).toContain("name: commit");
+    expect(
+      JSON.parse(await readFile(join(rootPath, ".agents/plugins/marketplace.json"), "utf8")),
+    ).toMatchObject({
+      plugins: [
+        {
+          name: "essentials",
+          source: { path: "./.packs/codex/essentials", source: "local" },
+        },
+      ],
+    });
+  });
+
+  test("reports Codex generation usage errors", async () => {
+    const result = await runCli(["codex", "generate"]);
+
+    expect(result).toEqual({ exitCode: 1, stderr: codexUsage });
+  });
+
   test("stores and applies configport overlays", async () => {
     const stateRootPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-state-"));
     const generatedPath = await mkdtemp(join(tmpdir(), "packport-cli-configport-generated-"));
@@ -394,7 +456,7 @@ describe("runCli", () => {
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr: `Unknown command 'wat'.\n${usage}\n${opencodeUsage}\n${configportUsage}`,
+      stderr: `Unknown command 'wat'.\n${usage}\n${opencodeUsage}\n${codexUsage}\n${configportUsage}`,
     });
   });
 });

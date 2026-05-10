@@ -20,6 +20,12 @@ export {
   writeConfigportOverlay,
 } from "./core/configport";
 export {
+  CODEX_DEFAULT_OUTPUT_DIRECTORY,
+  CODEX_MARKETPLACE_FILE,
+  formatCodexDiagnostics,
+  generateCodexOutput,
+} from "./core/codex";
+export {
   CONFIGPORT_CONTROL_PACK_DIRECTORY,
   CONFIGPORT_CONTROL_PACK_NAME,
   CONFIGPORT_CONTROL_PLUGIN_NAME,
@@ -57,6 +63,7 @@ export type {
   ClaudeMigrationWriteResult,
 } from "./core/claude-migration";
 export type { CheckResult } from "./core/check";
+export type { GenerateCodexResult } from "./core/codex";
 export type {
   ApplyConfigportOverlayOptions,
   ApplyConfigportOverlayResult,
