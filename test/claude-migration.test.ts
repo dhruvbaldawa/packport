@@ -66,13 +66,13 @@ name: debugging
       "skill:debugging",
     ]);
     expect(result.plugins[0]?.assets.map((asset) => asset.classification)).toEqual([
-      "unclear",
-      "unclear",
-      "unclear",
-      "unclear",
+      "pack-candidate",
+      "pack-candidate",
+      "pack-candidate",
+      "pack-candidate",
     ]);
     expect(result.plugins[0]?.assets.every((asset) => asset.decisionRequired)).toBe(true);
-    expect(result.plugins[1]?.assets[0]?.classification).toBe("personal-overlay");
+    expect(result.plugins[1]?.assets[0]?.classification).toBe("pack-candidate");
     expect(result.plugins[1]?.assets[0]?.decisionRequired).toBe(true);
   });
 
@@ -106,7 +106,55 @@ Run inside Claude Code.
     });
   });
 
-  test("does not use absolute filesystem paths as personal classification signals", async () => {
+  test("classifies config-looking assets as configuration candidates", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Todoist workflows",
+        name: "todoist",
+        version: "1.0.0",
+      }),
+      "commands/search.md": "Set TODOIST_API_TOKEN as an environment variable before use.\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins[0]?.assets[0]).toMatchObject({
+      classification: "configuration-candidate",
+      decisionRequired: true,
+      kind: "command",
+      name: "search",
+      path: "commands/search.md",
+      pluginName: "todoist",
+    });
+  });
+
+  test("keeps personal pack names as pack candidates that still require review", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Dhruv's writing style",
+        name: "writing-like-me",
+        version: "1.0.0",
+      }),
+      "skills/writing-like-me/SKILL.md": "# Writing Like Me\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins[0]?.assets[0]).toMatchObject({
+      classification: "pack-candidate",
+      decisionRequired: true,
+      kind: "skill",
+      name: "writing-like-me",
+      path: "skills/writing-like-me/SKILL.md",
+      pluginName: "writing-like-me",
+    });
+  });
+
+  test("treats personal names and paths as pack candidates", async () => {
     const rootPath = await createTempRepository("packport-dhruv-scan-");
     await writeFileTree(rootPath, {
       ".claude-plugin/plugin.json": JSON.stringify({
@@ -114,13 +162,13 @@ Run inside Claude Code.
         name: "essentials",
         version: "1.0.0",
       }),
-      "commands/commit.md": "# Commit\n",
+      "commands/writing-like-me.md": "# Writing Like Me\n",
     });
 
     const result = await scanClaudeMigrationSource(rootPath);
 
     expect(rootPath).toContain("dhruv");
-    expect(result.plugins[0]?.assets[0]?.classification).toBe("unclear");
+    expect(result.plugins[0]?.assets[0]?.classification).toBe("pack-candidate");
   });
 
   test("reports malformed marketplace source paths", async () => {
@@ -260,7 +308,7 @@ describe("formatClaudeMigrationScan", () => {
         "Plugins: 1",
         "Assets: 1",
         `essentials@1.0.0 ${rootPath}`,
-        "command essentials/commit unclear commands/commit.md",
+        "command essentials/commit pack-candidate commands/commit.md",
       ].join("\n"),
     );
   });

@@ -1,5 +1,5 @@
 ABOUTME: Captures the current design for an open-source portable agent-pack authoring tool.
-ABOUTME: Documents how ccconfigs dogfoods the tool, plus current decisions and unresolved design work.
+ABOUTME: Documents how ccconfigs dogfoods the tools, plus current decisions and unresolved design work.
 
 # packport Portable Agent Packs Design
 
@@ -11,7 +11,7 @@ This is a design snapshot before walking through user journeys. It records curre
 
 Build `packport`, an open-source tool that helps people create portable agent packs that work across multiple agent harnesses.
 
-The tool lives in `/home/dhruv/Code/packport`. `ccconfigs` is the dogfood repository for the tool. It should prove the tool can migrate a real Claude Code-first pack collection into a portable format without baking Dhruv-specific assumptions into the tool.
+The project lives in `/home/dhruv/Code/packport`. `ccconfigs` is the dogfood repository for the tools. It should prove `packport` can migrate a real Claude Code-first pack collection into a portable format without baking Dhruv-specific assumptions into the generic tools.
 
 ## First Principles
 
@@ -39,7 +39,7 @@ Full-scope requirements:
 
 - Native permission rendering for supported targets.
 - Native hook rendering, not just copying or documenting hook intent.
-- Pack-owned customization with local answers; richer scoped merging only after namespaced keys prove insufficient.
+- Pack-owned customization declarations; local answers and cross-tool application belong to the configuration tool.
 - Full Codex adapter for documented Codex surfaces, not a skill-only placeholder.
 
 The simplest useful product is:
@@ -59,8 +59,9 @@ The tool should optimize for successful AI-assisted authoring, not perfect stati
 
 ```text
 harness/agent = shell and driver
-tool = skills plus deterministic primitives, conventions, validators, resolvers, installers, and native emitters
-pack repo = local context, pack content, customization options, overlays, generated packages
+packport = pack conventions, validators, resolvers, emitters, installers, and pack control skills
+configport = profiles, selected packs, local values, scopes, and target-tool config application
+pack repo = pack content, customization declarations, generated packages, and source docs
 skills = agent-facing workflows that use local context and call deterministic tool primitives
 ```
 
@@ -68,7 +69,7 @@ The user should usually interact through skills inside Claude Code, OpenCode, Co
 
 `packport` has two generated output categories:
 
-- Control plugins: harness-native packages that install `packport` skills such as migration, authoring, configuration, checking, and release workflows.
+- Control plugins: harness-native packages that install `packport` skills such as migration, authoring, checking, and release workflows.
 - User pack plugins: generated packages for the portable packs authored by users or dogfood repositories.
 
 Actual interactive execution should happen through control skills. CLI commands should be deterministic primitives that skills call, not the main authoring interface.
@@ -90,9 +91,20 @@ No file should be both the thing an agent reads as capability content and the to
 
 ## Repository Split
 
-The generic tool lives in its own repository as `packport`.
+The project should start as one monorepo named `packport`, with separate packages for separate products:
 
-The generic tool owns:
+```text
+packport/
+  packages/
+    packport/          # pack source -> tool-native plugins, marketplaces, and generated pack output
+    configport/        # profiles, selected packs, scopes, and tool config application
+    harnesses/         # shared Claude/OpenCode/Codex paths, schemas, and target facts
+    core/              # shared diagnostics, filesystem safety, and lock helpers
+```
+
+The implementation can remain flat while only `packport` exists. Once configuration work starts, it should move into a sibling package instead of becoming more `packport` surface area.
+
+`packport` owns:
 
 - Pack authoring conventions.
 - Built-in control skills and their harness-specific packaging.
@@ -102,21 +114,34 @@ The generic tool owns:
 - Built-in skill recipes for semantic mappings such as permissions, hooks, customization, and Codex surfaces.
 - Static validators.
 - Migration scanners.
-- Install and uninstall primitives.
-- Built-in skills such as `migrate-claude`, `author-pack`, `configure-pack`, and `add-harness`.
+- Pack install and uninstall primitives for generated pack outputs.
+- Built-in skills such as `migrate-claude`, `author-pack`, `check-pack`, `install-pack`, and `add-harness`.
+
+`configport` owns:
+
+- Installed/enabled pack state across harnesses.
+- Profiles and scopes such as global, repository-local, project, or named user profiles.
+- Local customization values for pack-declared options.
+- Target-tool configuration files and enablement state.
+- Secret references, not literal secret values.
+- Model, tool, permission, and path choices that are user/machine configuration rather than pack source.
+- Interactive configuration skills and automation commands.
+
+Shared harness packages own facts that both products need, such as target config paths, plugin install locations, stable schema details, and native feature availability.
 
 The pack repository owns:
 
 - Pack content.
-- Local customization options.
-- Personal overlays.
+- Customization declarations and safe defaults.
 - Pack-specific scripts.
 - Pack-owned skills that are part of the user's generated packs.
 - Source-level exception notes where the default tool behavior is not enough.
 - Generated harness packages.
 - Pack-specific documentation and source-level compatibility decisions.
 
-The generic tool must not know about `Dhruv`, `ccconfigs`, local machine paths, personal writing voice, private telemetry endpoints, or other pack-specific defaults.
+Personal packs are still packs. The tools must not treat personal authorship, private distribution, or a pack name such as `writing-like-me` as a separate overlay category. The boundary is source versus configuration: reusable or personal behavior belongs in pack source; local machine values, selected-pack state, secrets, install scopes, and per-user answers belong in `configport` state.
+
+The generic tools must not know about `Dhruv`, `ccconfigs`, local machine paths, private telemetry endpoints, or other pack-specific defaults.
 
 ## ccconfigs Role
 
@@ -125,8 +150,8 @@ The generic tool must not know about `Dhruv`, `ccconfigs`, local machine paths, 
 It should provide:
 
 - Portable packs for essentials, writing, todoist, notifications, and experimental workflows.
-- Customization options such as `user_name`, writing voice preferences, telemetry endpoint, and Todoist settings.
-- Local personal overlays that are not part of reusable generated packages unless explicitly selected.
+- Pack-owned customization declarations such as writing voice preferences, Todoist settings, model roles, and optional endpoints.
+- Dogfood configuration examples for `configport`, without making local values part of portable pack source.
 - Generated output packages for Claude Code, OpenCode, and Codex.
 
 ## Authoring Format
@@ -161,11 +186,12 @@ packport/
   skills/
     migrate-claude/SKILL.md
     author-pack/SKILL.md
-    configure-pack/SKILL.md
     check-pack/SKILL.md
     install-pack/SKILL.md
     add-harness/SKILL.md
 ```
+
+`configport` should ship its own control skill source for configuration workflows, such as `configure-pack` or `configure-tools`.
 
 The tool should use deterministic Markdown and directory conventions to build a lightweight index. Users and agents should mostly edit Markdown, not YAML.
 
@@ -296,7 +322,7 @@ Skip IR in v1. Do not ask authors to write or understand an intermediate represe
 
 ```text
 pack id -> convention-discovered assets -> optional contracts -> payload paths -> needs/configuration
-pack.lock.yaml -> selected packs -> generated outputs -> ownership/hashes/versions
+pack.lock.yaml -> generated outputs -> ownership/hashes/versions/accepted decisions
 ```
 
 Anything deeper should be justified by repeated friction in real user journeys.
@@ -310,7 +336,7 @@ The normal authoring loop should be:
 ```text
 write payload content in Markdown or code
 write or update optional ASSET.md only when packaging intent cannot be inferred
-run a tool skill such as migrate-claude, author-pack, or configure-pack
+run a tool skill such as migrate-claude, author-pack, or check-pack
 review generated native target output
 accept, edit, or record a conversion decision outside the payload when the default is wrong
 ```
@@ -489,12 +515,13 @@ This distinction lets migration use the harness as a smart driver without making
 
 Skills are the primary user experience.
 
-There are two kinds of skills:
+There are three kinds of skills:
 
-- `packport` control skills live in the `packport` tool repository. They drive authoring, migration, configuration, checking, installation, release, and harness support workflows.
+- `packport` control skills live in the `packport` package. They drive authoring, migration, checking, installation, release, and harness support workflows for pack source and generated pack output.
+- `configport` control skills live in the `configport` package. They drive profile, selected-pack, local-value, scope, and target-tool configuration workflows.
 - Pack payload skills live in pack repositories. They are user-facing capabilities that get emitted into generated target packages.
 
-Control skills are distributed through harness-native `packport` control plugins. Installing the `packport` control plugin into Claude Code, OpenCode, Codex, or another harness gives the user the agent-facing workflows that call deterministic `packport` primitives.
+Control skills are distributed through harness-native control plugins. Installing the `packport` control plugin gives the user pack authoring and generation workflows. Installing the `configport` control plugin gives the user configuration workflows.
 
 The CLI should remain usable without skills for automation and tests, but it should not become the primary product surface.
 
@@ -502,10 +529,14 @@ The built-in tool skills should include:
 
 - `migrate-claude`: migrate a Claude Code marketplace or plugin collection into portable pack source.
 - `author-pack`: create or extend a portable pack.
-- `configure-pack`: configure overlays, variables, selected packs, models, and tools.
 - `check-pack`: validate conventions, lockfile state, generated outputs, and drift.
 - `install-pack`: install selected generated pack outputs into a target harness scope.
 - `add-harness`: help add a new harness adapter and compatibility matrix entry.
+
+The built-in `configport` skills should include:
+
+- `configure-pack`: answer pack-declared configuration questions and store profile/scope values.
+- `configure-tools`: manage selected packs, models, permissions, install scopes, and target-tool config files.
 
 Skills can:
 
@@ -545,19 +576,19 @@ It should produce or guide toward:
 
 - Portable Markdown pack source made of payload files plus optional asset contracts.
 - Customization declarations.
-- Personal overlay candidates.
+- Configuration candidates for values that should not live in pack source.
 - Generated Claude, OpenCode, and Codex outputs.
 - Compatibility and degradation notes.
 
 It should classify assets as:
 
-- Reusable base.
-- Personal overlay.
+- Pack candidate.
+- Configuration candidate.
 - Harness-specific.
 - Unsupported or degraded.
 - Unclear and requiring user decision.
 
-It must not silently decide what is personal versus reusable when the answer is ambiguous.
+It must not silently decide pack boundaries, public/private distribution, or source-versus-configuration placement when the answer is ambiguous. Personal packs are still packs; they are not migrated into a separate overlay category merely because they are personal.
 
 ## Target Resolvers
 
@@ -689,17 +720,17 @@ No source-ID deduplication system is planned for v1. The target resolver owns lo
 
 ## Customization
 
-Customization is pack-owned, not tool-owned.
+Customization declarations are pack-owned. Customization values are configuration-tool-owned.
 
-The tool supports declared customization values, but the pack repo decides which variables exist and what they mean.
+The pack repo decides which variables exist, what they mean, and which safe defaults apply. The configuration tool stores and applies the actual user, machine, profile, and scope-specific answers.
 
 V1 should support:
 
 - Pack-level declarations.
-- Local answers stored by profile/scope outside reusable payload.
+- Local answers stored by `configport` profile/scope outside reusable payload.
 - Namespaced keys such as `commit.review_model` when a value is only meaningful to one asset.
 
-Do not add scoped merging until repeated usage proves namespaced keys are insufficient. Avoid one global customization registry when the variable is only meaningful for one asset.
+Do not add scoped merging until repeated usage proves namespaced keys are insufficient. Avoid one global customization registry when the variable is only meaningful for one asset. `configport` can manage profiles and scopes without moving the variable definitions out of the pack.
 
 Examples from ccconfigs might include:
 
@@ -709,35 +740,43 @@ Examples from ccconfigs might include:
 - `todoist_project`.
 - `preferred_review_model`.
 
-The generic tool only knows how to:
+`packport` only knows how to:
 
-- Ask for declared values.
 - Validate declared types.
-- Store local answers for declared variables only.
 - Substitute declared placeholder values in generated outputs where the pack explicitly opts a payload or wrapper into substitution.
 - Refuse missing required values.
+
+`configport` knows how to:
+
+- Ask for declared values.
+- Store local answers for declared variables only.
+- Select packs per harness/profile/scope.
+- Apply user and machine answers into target-native config files.
+- Keep secret references outside pack source and generated payloads.
 
 Secrets should be emitted as environment references, not literal secret values.
 
 ## Configuration Management
 
-Configuration management should be a separate domain inside `packport`, not a separate tool in v1.
+Configuration management is a separate tool, `configport`, in the same monorepo as `packport`.
 
 Reasons:
 
-- It needs the same pack index, optional contracts, target resolvers, installers, and `pack.lock.yaml` ownership model as generation.
-- Splitting it would duplicate target install/discovery behavior and create competing sources of truth for profiles, selected packs, and generated ownership.
-- The interactive configuration experience belongs in `packport` control skills, because harness agents can ask questions, inspect local context, and explain tradeoffs better than a raw CLI prompt.
+- Pack conversion and configuration state are different products.
+- `packport` should not own long-lived user or machine configuration state.
+- `configport` should be usable even when no pack conversion is happening.
+- Both tools still need shared harness facts, install locations, and schema references, so a shared monorepo is simpler than separate repositories at this stage.
+- The interactive configuration experience belongs in `configport` control skills, because harness agents can ask questions, inspect local context, and explain tradeoffs better than a raw CLI prompt.
 
 The boundary should be explicit:
 
-- Authoring primitives discover and validate pack source.
-- Resolver/emitter primitives generate target packages.
-- Configuration primitives manage selected packs, profiles, local answers, overlays, and install scopes.
-- Installer primitives apply generated output to harness-specific locations.
-- Control skills orchestrate those primitives and own the conversational workflow.
+- `packport` primitives discover and validate pack source.
+- `packport` resolver/emitter primitives generate target packages.
+- `packport` installer primitives apply generated pack output to harness-specific locations.
+- `configport` primitives manage selected packs, profiles, local answers, tool config files, and install scopes.
+- Each tool's control skills orchestrate that tool's primitives and own the conversational workflow.
 
-`packport configure` can exist for automation, but the primary UX is the `configure-pack` control skill. A separate configuration tool should only be considered later if configuration management develops an independent release cycle, security boundary, or non-pack use case.
+`configport configure` can exist for automation, but the primary UX is a `configure-pack` or `configure-tools` control skill shipped by `configport`. `packport` may expose metadata that helps `configport`, but it should not grow into the configuration manager.
 
 ## Permissions
 
@@ -808,7 +847,7 @@ Use Bun and TypeScript. When creating `/home/dhruv/Code/packport`, use the lates
 Reasons:
 
 - Current repo already uses Bun-oriented scripts.
-- The tool can later move to a separate repo.
+- The monorepo can later split packages into separate repositories if release cadence or ownership diverges.
 - It can be packaged as an executable.
 - It avoids shell scripts as source implementation.
 
@@ -897,7 +936,7 @@ The check flow should:
 
 - Parse `PACK.md` files and optional asset contracts.
 - Verify convention-inferred and declared payload paths exist without requiring portable-pack metadata inside payload files.
-- Resolve customization and overlays.
+- Validate pack-declared customization metadata without resolving local configuration values.
 - Build a lightweight pack index for asset identity, optional contract paths, payload paths, ownership, and simple fields.
 - Read the existing `pack.lock.yaml` for ownership and accepted decisions.
 - Resolve selected target plans using harness references and accepted decisions.
@@ -917,7 +956,7 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 ### Migrate A Claude Marketplace
 
 - `migrate-claude` preserves reusable instructions as payload and writes optional `ASSET.md` only for non-obvious needs.
-- Ambiguous personal versus reusable content becomes a user question, not an automatic generic-tool default.
+- Ambiguous pack boundaries, distribution intent, or source-versus-configuration placement become user questions, not automatic generic-tool defaults.
 - Target-specific decisions are recorded as lockfile decisions; reports are generated views.
 
 ### Install packport Control Skills
@@ -934,9 +973,9 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 
 ### Install Into Claude Code
 
-- The Claude resolver returns a target plan for selected packs and install scope.
+- The Claude resolver returns a target plan for the pack selection being generated and install scope.
 - The Claude emitter serializes that plan without deciding command, permission, or degradation semantics.
-- The lockfile records ownership, hashes, selected packs, and accepted decisions.
+- The lockfile records ownership, hashes, the pack selection used for generation, and accepted decisions.
 
 ### Install Into OpenCode
 
@@ -952,10 +991,10 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 
 ### Configure Customization
 
-- V1 supports pack-level declarations and local answers.
+- V1 supports pack-level declarations in pack source and local answers in `configport` state.
 - Asset-specific values use namespaced keys until scoped merging is proven necessary.
 - Payload templating requires explicit opt-in; otherwise placeholder-looking text is literal.
-- Configuration state is managed by `packport` primitives and driven by `configure-pack`, not by a separate configuration tool.
+- Configuration state is managed by `configport` primitives and driven by `configport` control skills.
 
 ### Incremental Update
 
@@ -972,7 +1011,7 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 ### Migrate ccconfigs
 
 - Current Claude-first assets are migration input, not final portable source shape.
-- Dhruv-specific local details move into overlays or customization declarations.
+- Personal pack behavior remains pack source. Local machine values, secrets, selected-pack state, and install scopes move into `configport` state or pack-declared configuration values.
 - Generated packages can be committed for dogfooding, but lockfiles define ownership and drift.
 
 ## Migration Strategy
@@ -991,7 +1030,7 @@ Plan:
 6. Add `packport` control skill source and a minimal control-plugin generator for at least one harness.
 7. Add `migrate-claude` skill prototype and migration scanner.
 8. Run scanner on `ccconfigs` and produce migrated source/report candidates without generated target output.
-9. Add configuration management primitives and `configure-pack` skill flow.
+9. Add `configport` package skeleton, configuration primitives, and configuration control skill flow.
 10. Add Claude resolver, emitter, validator, and installer using migrated source as adapter test input.
 11. Add OpenCode resolver, emitter, validator, and installer.
 12. Add Codex resolver, emitter, validator, and installer.

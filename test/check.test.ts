@@ -108,7 +108,7 @@ describe("runCli", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Claude migration scan:");
     expect(result.stdout).toContain("Plugins: 1");
-    expect(result.stdout).toContain("command essentials/commit unclear commands/commit.md");
+    expect(result.stdout).toContain("command essentials/commit pack-candidate commands/commit.md");
   });
 
   test("returns nonzero for Claude migration scan errors", async () => {

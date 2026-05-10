@@ -9,9 +9,9 @@ import type { Diagnostic } from "./types";
 export type ClaudeMigrationAssetKind = "agent" | "command" | "skill";
 
 export type ClaudeMigrationClassification =
+  | "configuration-candidate"
   | "harness-specific"
-  | "personal-overlay"
-  | "reusable-base"
+  | "pack-candidate"
   | "unclear"
   | "unsupported";
 
@@ -73,7 +73,16 @@ const ASSET_CONVENTIONS: readonly AssetConvention[] = [
 
 const MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
 const PLUGIN_FILE = ".claude-plugin/plugin.json";
-const PERSONAL_SIGNALS = ["dhruv", "my ", "personal", "writing-like-me"];
+const CONFIGURATION_SIGNALS = [
+  ".env",
+  "api key",
+  "api token",
+  "config.toml",
+  "credentials",
+  "environment variable",
+  "settings.json",
+  "todoist_api_token",
+];
 const HARNESS_SIGNALS = ["claude code", "/plugin", ".claude"];
 
 /** Scans a Claude marketplace root or a single Claude plugin directory. */
@@ -370,7 +379,7 @@ function createAsset(
   text: string,
 ): ClaudeMigrationAsset {
   const assetPath = relativePath(pluginPath, path);
-  const classification = classifyAsset(manifest, name, assetPath, text);
+  const classification = classifyAsset(text);
 
   return {
     ...classification,
@@ -383,21 +392,9 @@ function createAsset(
 
 /** Classifies obvious migration candidates without hiding the reason from the driving skill. */
 function classifyAsset(
-  manifest: ClaudePluginManifest,
-  name: string,
-  path: string,
   text: string,
 ): Pick<ClaudeMigrationAsset, "classification" | "decisionRequired" | "reasons"> {
-  const metadataText = `${manifest.name} ${manifest.description} ${name} ${path}`.toLowerCase();
   const bodyText = stripYamlFrontmatter(text).toLowerCase();
-
-  if (PERSONAL_SIGNALS.some((signal) => metadataText.includes(signal))) {
-    return {
-      classification: "personal-overlay",
-      decisionRequired: true,
-      reasons: ["Path, name, or description contains a personal signal."],
-    };
-  }
 
   if (HARNESS_SIGNALS.some((signal) => bodyText.includes(signal))) {
     return {
@@ -407,10 +404,20 @@ function classifyAsset(
     };
   }
 
+  if (CONFIGURATION_SIGNALS.some((signal) => bodyText.includes(signal))) {
+    return {
+      classification: "configuration-candidate",
+      decisionRequired: true,
+      reasons: ["Body references values or files that likely belong in configport state."],
+    };
+  }
+
   return {
-    classification: "unclear",
+    classification: "pack-candidate",
     decisionRequired: true,
-    reasons: ["No personal or Claude-specific body signals found; user must confirm reuse."],
+    reasons: [
+      "Claude asset uses a supported pack convention; user must confirm migration placement.",
+    ],
   };
 }
 
