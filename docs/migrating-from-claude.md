@@ -70,8 +70,13 @@ The writer creates source files such as:
 /tmp/portable-packs/packs/<plugin>/PACK.md
 /tmp/portable-packs/packs/<plugin>/agents/<asset>/AGENT.md
 /tmp/portable-packs/packs/<plugin>/commands/<asset>/COMMAND.md
+/tmp/portable-packs/packs/<plugin>/skills/<asset>/ASSET.md
 /tmp/portable-packs/packs/<plugin>/skills/<asset>/SKILL.md
 ```
+
+Skills with support files are written as multi-payload assets. The generated `ASSET.md` declares
+`SKILL.md` first and then the support files, so target generation keeps the skill body as the primary
+payload while still scanning and packaging reusable references.
 
 ## Migration Judgment
 
@@ -82,5 +87,6 @@ Use these rules when answering migration questions:
 - local names, paths, endpoints, and secrets belong in configport state.
 - support scripts that implement reusable behavior belong in the pack.
 - support files that encode local state belong in configport.
+- support file contents are scanned for structural facts; path-only checks are not enough.
 
 The migration primitive deliberately avoids guessing these boundaries from prose alone.

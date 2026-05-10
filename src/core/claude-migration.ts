@@ -233,6 +233,21 @@ export async function planClaudeMigration(
       );
       const payloads = await collectPlannedPayloads(plugin, asset, diagnostics, questions);
 
+      if (asset.kind === "skill" && payloads.length > 1) {
+        addPlanFile(
+          files,
+          diagnostics,
+          plannedTargets,
+          {
+            action: "create",
+            content: createAssetPayloadsMarkdown(payloads),
+            description: `Declare ${asset.kind} payloads for ${plugin.name}/${asset.name}.`,
+            targetPath: slashPath(join(assetPath, "ASSET.md")),
+          },
+          join(plugin.path, asset.path),
+        );
+      }
+
       for (const payload of payloads) {
         addPlanFile(
           files,
@@ -730,6 +745,17 @@ function createPackMarkdown(plugin: ClaudeMigrationPlugin): string {
   ].join("\n");
 }
 
+/** Creates an asset contract that preserves migrated support files as declared payloads. */
+function createAssetPayloadsMarkdown(payloads: readonly PlannedPayload[]): string {
+  return [
+    "---",
+    "payloads:",
+    ...payloads.map((payload) => `  - ${payload.targetPath}`),
+    "---",
+    "",
+  ].join("\n");
+}
+
 /** Quotes generated frontmatter scalars when plain YAML syntax would be ambiguous. */
 function serializeFrontmatterValue(value: string): string {
   if (/^[A-Za-z0-9_./ -]+$/.test(value) && value.trim() === value) {
@@ -797,16 +823,20 @@ async function collectPlannedPayloads(
   }
 
   const sourceDirectory = dirname(sourcePath);
-  const files = await collectSkillPayloadFiles(sourceDirectory, diagnostics);
+  const files = orderSkillPayloadFiles(
+    sourcePath,
+    await collectSkillPayloadFiles(sourceDirectory, diagnostics),
+  );
 
-  return files.map((file) => {
+  const plannedPayloads: PlannedPayload[] = [];
+
+  for (const file of files) {
     const sourceRelativePath = relativePath(sourceDirectory, file);
     const targetPath = toPortableSupportPath(sourceDirectory, file);
-    const facts = collectFacts(sourceRelativePath).filter(
-      (fact) => fact.kind === "config-path-reference",
-    );
+    const text = file === sourcePath ? undefined : await readTextFile(file, diagnostics);
+    const facts = collectFacts(`${sourceRelativePath}\n${text ?? ""}`);
 
-    if (facts.length > 0) {
+    if (file !== sourcePath && facts.length > 0) {
       questions.push({
         asset: {
           classification: asset.classification,
@@ -821,8 +851,16 @@ async function collectPlannedPayloads(
       });
     }
 
-    return { sourcePath: file, targetPath };
-  });
+    plannedPayloads.push({ sourcePath: file, targetPath });
+  }
+
+  return plannedPayloads;
+}
+
+/** Keeps the Claude skill body as the primary payload before support files. */
+function orderSkillPayloadFiles(sourcePath: string, files: readonly string[]): string[] {
+  const supportFiles = files.filter((file) => file !== sourcePath);
+  return files.includes(sourcePath) ? [sourcePath, ...supportFiles] : [...supportFiles];
 }
 
 /** Recursively collects regular files under a Claude skill directory. */

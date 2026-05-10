@@ -548,12 +548,13 @@ describe("planClaudeMigration", () => {
     const result = await planClaudeMigration(rootPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.summary).toEqual({ assets: 4, files: 6, plugins: 1, questions: 0 });
+    expect(result.summary).toEqual({ assets: 4, files: 7, plugins: 1, questions: 0 });
     expect(result.files.map((file) => file.targetPath)).toEqual([
       "packs/essentials/PACK.md",
       "packs/essentials/agents/research-depth/AGENT.md",
       "packs/essentials/commands/commit/COMMAND.md",
       "packs/essentials/commands/frontend-component/COMMAND.md",
+      "packs/essentials/skills/debugging/ASSET.md",
       "packs/essentials/skills/debugging/SKILL.md",
       "packs/essentials/skills/debugging/reference/examples.md",
     ]);
@@ -692,6 +693,27 @@ describe("planClaudeMigration", () => {
     ]);
   });
 
+  test("keeps single-file skills convention-based without ASSET.md", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "skills/debugging/SKILL.md": "# Debugging\n",
+    });
+
+    const result = await planClaudeMigration(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 1, files: 2, plugins: 1, questions: 0 });
+    expect(result.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/skills/debugging/SKILL.md",
+    ]);
+  });
+
   test("reports config-looking skill support files as fact questions", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
@@ -702,13 +724,14 @@ describe("planClaudeMigration", () => {
       }),
       "skills/debugging/SKILL.md": "# Debugging\n",
       "skills/debugging/reference/examples.md": "# Examples\n",
-      "skills/debugging/settings.json": "{}\n",
+      "skills/debugging/settings.json": '{"token":"$TODOIST_API_TOKEN"}\n',
     });
 
     const result = await planClaudeMigration(rootPath);
 
     expect(result.files.map((file) => file.targetPath)).toEqual([
       "packs/essentials/PACK.md",
+      "packs/essentials/skills/debugging/ASSET.md",
       "packs/essentials/skills/debugging/SKILL.md",
       "packs/essentials/skills/debugging/reference/examples.md",
       "packs/essentials/skills/debugging/settings.json",
@@ -722,6 +745,11 @@ describe("planClaudeMigration", () => {
             message: "References config-like path settings.json.",
             value: "settings.json",
           },
+          {
+            kind: "variable-reference",
+            message: "References variable TODOIST_API_TOKEN.",
+            value: "TODOIST_API_TOKEN",
+          },
         ],
         kind: "skill",
         name: "debugging",
@@ -729,7 +757,10 @@ describe("planClaudeMigration", () => {
         pluginName: "essentials",
       },
       message: "Decide whether this support file is pack source or configport-managed state.",
-      reasons: ["References config-like path settings.json."],
+      reasons: [
+        "References config-like path settings.json.",
+        "References variable TODOIST_API_TOKEN.",
+      ],
     });
   });
 
@@ -750,8 +781,9 @@ describe("planClaudeMigration", () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.files.map((file) => file.targetPath)).toEqual([
       "packs/essentials/PACK.md",
-      "packs/essentials/skills/debugging/unnamed/unnamed/outside.md",
+      "packs/essentials/skills/debugging/ASSET.md",
       "packs/essentials/skills/debugging/SKILL.md",
+      "packs/essentials/skills/debugging/unnamed/unnamed/outside.md",
     ]);
   });
 
@@ -869,7 +901,7 @@ describe("writeClaudeMigration", () => {
     const result = await writeClaudeMigration(rootPath, outputPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.summary).toEqual({ files: 4 });
+    expect(result.summary).toEqual({ files: 5 });
     expect(await readFile(join(outputPath, "packs/essentials/PACK.md"), "utf8")).toBe(
       `---
 name: essentials
@@ -881,6 +913,14 @@ description: Essential workflows
     expect(
       await readFile(join(outputPath, "packs/essentials/commands/commit/COMMAND.md"), "utf8"),
     ).toBe("# Commit\n");
+    expect(
+      await readFile(join(outputPath, "packs/essentials/skills/debugging/ASSET.md"), "utf8"),
+    ).toBe(`---
+payloads:
+  - SKILL.md
+  - reference/examples.md
+---
+`);
     expect(
       await readFile(
         join(outputPath, "packs/essentials/skills/debugging/reference/examples.md"),

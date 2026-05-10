@@ -18,11 +18,13 @@ Use this skill to inspect Claude Code marketplace or plugin source before writin
 5. Summarize discovered plugins, planned files, target collisions, structural facts, and decision questions.
 6. Treat `pack-candidate` assets as normal pack source candidates, including personal or private packs.
 7. Treat known structural facts such as explicit config/security variable references, `config-path-reference`, and `script-reference` as evidence to reason from, not as automatic classifications.
-8. Call out `harness-specific`, `unsupported`, `unclear`, and fact-bearing assets as questions, not decisions.
-9. If the user marks a whole plugin as harness-specific, rerun the plan with `--exclude-plugin <name>` before summarizing portable source files.
-10. If the user marks one asset as harness-specific, rerun the plan with `--exclude-asset <plugin/name>` before summarizing portable source files.
-11. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
-12. After every question is resolved or excluded, run `packport migrate-claude write <source> <output>` with the accepted exclusions.
+8. Inspect planned skill support-file questions as content findings, not just path findings; support files with local values may need configport treatment.
+9. Expect multi-file skills to produce `ASSET.md` with `SKILL.md` first and support files after it.
+10. Call out `harness-specific`, `unsupported`, `unclear`, and fact-bearing assets as questions, not decisions.
+11. If the user marks a whole plugin as harness-specific, rerun the plan with `--exclude-plugin <name>` before summarizing portable source files.
+12. If the user marks one asset as harness-specific, rerun the plan with `--exclude-asset <plugin/name>` before summarizing portable source files.
+13. Do not write portable pack source until the user confirms pack boundaries and source-versus-configuration placement.
+14. After every question is resolved or excluded, run `packport migrate-claude write <source> <output>` with the accepted exclusions.
 
 ## Boundaries
 
