@@ -1,7 +1,7 @@
 // ABOUTME: Discovers portable packs from packport's convention-based source layout.
 // ABOUTME: Builds a lightweight index while keeping payload files opaque.
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { parseMarkdownContract } from "./markdown";
 import type { AssetIndex, AssetKind, Diagnostic, DiscoveryResult, PackIndex } from "./types";
@@ -279,7 +279,7 @@ async function safeReadFile(path: string): Promise<string | undefined> {
 /** Checks whether a filesystem path exists and is a regular file. */
 async function fileExists(path: string): Promise<boolean> {
   try {
-    const stats = await stat(path);
+    const stats = await lstat(path);
     return stats.isFile();
   } catch (error) {
     if (isMissingPathError(error)) {

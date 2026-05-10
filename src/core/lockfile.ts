@@ -1,0 +1,518 @@
+// ABOUTME: Reads, writes, and validates packport's generated pack.lock.yaml file.
+// ABOUTME: Keeps generated ownership and source drift separate from author-facing source.
+
+import { createHash } from "node:crypto";
+import { lstat, readFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join, relative } from "node:path";
+import { parse, stringify } from "yaml";
+import type { Diagnostic, PackRepositoryIndex } from "./types";
+
+export const PACK_LOCK_FILE = "pack.lock.yaml";
+
+export type LockedAsset = {
+  readonly contract?: LockedSource;
+  readonly id: string;
+  readonly kind: string;
+  readonly payloads: readonly LockedSource[];
+};
+
+export type LockedPack = {
+  readonly hash: string;
+  readonly id: string;
+  readonly path: string;
+  readonly version: string;
+};
+
+export type LockedSource = {
+  readonly hash: string;
+  readonly path: string;
+};
+
+export type PackLock = {
+  readonly assets: readonly LockedAsset[];
+  readonly decisions: readonly string[];
+  readonly lockfileVersion: 1;
+  readonly outputs: readonly string[];
+  readonly packs: readonly LockedPack[];
+  readonly tool: {
+    readonly name: "packport";
+    readonly version: string;
+  };
+};
+
+export type PackLockReadResult = {
+  readonly diagnostics: readonly Diagnostic[];
+  readonly lock?: PackLock;
+};
+
+/** Builds a deterministic lockfile from a discovered pack repository index. */
+export async function createPackLock(
+  rootPath: string,
+  index: PackRepositoryIndex,
+  toolVersion: string,
+): Promise<PackLock> {
+  const packs = await Promise.all(
+    index.packs.map(async (pack) => ({
+      hash: await hashSourceFile(rootPath, pack.packFilePath),
+      id: pack.id,
+      path: relativePath(rootPath, pack.packFilePath),
+      version: pack.version,
+    })),
+  );
+  const assets = await Promise.all(
+    index.packs.flatMap((pack) =>
+      pack.assets.map(async (asset) => ({
+        ...(asset.contract
+          ? {
+              contract: {
+                hash: await hashSourceFile(rootPath, asset.contract.path),
+                path: relativePath(rootPath, asset.contract.path),
+              },
+            }
+          : {}),
+        id: asset.id,
+        kind: asset.kind,
+        payloads: await Promise.all(
+          asset.payloadPaths.map(async (payloadPath) => ({
+            hash: await hashSourceFile(rootPath, payloadPath),
+            path: relativePath(rootPath, payloadPath),
+          })),
+        ),
+      })),
+    ),
+  );
+
+  return {
+    assets,
+    decisions: [],
+    lockfileVersion: 1,
+    outputs: [],
+    packs,
+    tool: { name: "packport", version: toolVersion },
+  };
+}
+
+/** Reports source files that changed, disappeared, or are not tracked by the lockfile. */
+export async function detectLockDrift(
+  rootPath: string,
+  lock: PackLock,
+  index: PackRepositoryIndex,
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  const lockedPaths = new Set(lockedSources(lock).map((source) => source.path));
+
+  for (const source of lockedSources(lock)) {
+    const absolutePath = join(rootPath, source.path);
+    const sourceState = await tryHashLockedSource(rootPath, source.path);
+
+    if (sourceState.diagnostic) {
+      diagnostics.push(sourceState.diagnostic);
+      continue;
+    }
+
+    if (sourceState.hash === undefined) {
+      diagnostics.push({
+        code: "missing-locked-source",
+        message: "Locked source file is missing.",
+        path: absolutePath,
+        severity: "error",
+      });
+      continue;
+    }
+
+    if (sourceState.hash !== source.hash) {
+      diagnostics.push({
+        code: "source-drift",
+        message: "Locked source file hash differs from current contents.",
+        path: absolutePath,
+        severity: "error",
+      });
+    }
+  }
+
+  for (const source of indexSources(rootPath, index)) {
+    if (!lockedPaths.has(source.path)) {
+      diagnostics.push({
+        code: "unlocked-source",
+        message: "Source file is not recorded in pack.lock.yaml.",
+        path: join(rootPath, source.path),
+        severity: "error",
+      });
+    }
+  }
+
+  return diagnostics;
+}
+
+/** Reads and validates pack.lock.yaml when it exists. */
+export async function readPackLock(rootPath: string): Promise<PackLockReadResult> {
+  const lockPath = join(rootPath, PACK_LOCK_FILE);
+
+  try {
+    return validatePackLock(parse(await readFile(lockPath, "utf8")), lockPath);
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return { diagnostics: [] };
+    }
+
+    return {
+      diagnostics: [
+        {
+          code: "invalid-lockfile-yaml",
+          message: error instanceof Error ? error.message : "Could not parse pack.lock.yaml.",
+          path: lockPath,
+          severity: "error",
+        },
+      ],
+    };
+  }
+}
+
+/** Serializes and writes pack.lock.yaml deterministically. */
+export async function writePackLock(rootPath: string, lock: PackLock): Promise<void> {
+  await writeFile(join(rootPath, PACK_LOCK_FILE), serializePackLock(lock));
+}
+
+/** Serializes pack.lock.yaml with stable key order and without YAML anchors. */
+export function serializePackLock(lock: PackLock): string {
+  return stringify(lock, { aliasDuplicateObjects: false, collectionStyle: "block" });
+}
+
+/** Hashes a file with SHA-256 for lockfile drift checks. */
+async function hashFile(path: string): Promise<string> {
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
+}
+
+/** Hashes a source path only after enforcing the same safety checks used for drift. */
+async function hashSourceFile(rootPath: string, path: string): Promise<string> {
+  const relativeSourcePath = relativePath(rootPath, path);
+  const sourceState = await tryHashLockedSource(rootPath, relativeSourcePath);
+
+  if (sourceState.hash) {
+    return sourceState.hash;
+  }
+
+  throw new Error(
+    sourceState.diagnostic?.message ?? `Cannot hash unsafe or missing source file: ${path}`,
+  );
+}
+
+type LockedSourceState = {
+  readonly diagnostic?: Diagnostic;
+  readonly hash?: string;
+};
+
+/** Attempts to hash a locked source, converting unsafe or unreadable paths to diagnostics. */
+async function tryHashLockedSource(
+  rootPath: string,
+  sourcePath: string,
+): Promise<LockedSourceState> {
+  const path = join(rootPath, sourcePath);
+
+  if (!isValidLockPath(sourcePath)) {
+    return {
+      diagnostic: {
+        code: "invalid-locked-source",
+        message: "Locked source path must be relative and stay inside the repository.",
+        path,
+        severity: "error",
+      },
+    };
+  }
+
+  try {
+    const stats = await lstatSourcePath(rootPath, sourcePath);
+
+    if (!stats.isFile()) {
+      return {
+        diagnostic: {
+          code: "invalid-locked-source",
+          message: "Locked source path must be a regular file.",
+          path,
+          severity: "error",
+        },
+      };
+    }
+
+    return { hash: await hashFile(path) };
+  } catch (error) {
+    if (error instanceof SymlinkSourceError) {
+      return {
+        diagnostic: {
+          code: "invalid-locked-source",
+          message: "Locked source path must not contain symlinks.",
+          path: error.path,
+          severity: "error",
+        },
+      };
+    }
+
+    if (isMissingPathError(error)) {
+      return {};
+    }
+
+    return {
+      diagnostic: {
+        code: "unreadable-locked-source",
+        message: error instanceof Error ? error.message : "Could not read locked source file.",
+        path,
+        severity: "error",
+      },
+    };
+  }
+}
+
+/** Lstats every component of a locked source path so symlink traversal cannot escape root. */
+async function lstatSourcePath(
+  rootPath: string,
+  sourcePath: string,
+): Promise<Awaited<ReturnType<typeof lstat>>> {
+  let currentPath = rootPath;
+  let currentStats: Awaited<ReturnType<typeof lstat>> | undefined;
+
+  for (const segment of sourcePath.split(/[\\/]+/)) {
+    currentPath = join(currentPath, segment);
+    currentStats = await lstat(currentPath);
+
+    if (currentStats.isSymbolicLink()) {
+      throw new SymlinkSourceError(currentPath);
+    }
+  }
+
+  if (currentStats === undefined) {
+    throw new Error("Locked source path is empty.");
+  }
+
+  return currentStats;
+}
+
+class SymlinkSourceError extends Error {
+  readonly path: string;
+
+  /** Captures the symlink path that made a locked source unsafe. */
+  constructor(path: string) {
+    super("Locked source path must not contain symlinks.");
+    this.path = path;
+  }
+}
+
+/** Returns every source file tracked by a lockfile. */
+function lockedSources(lock: PackLock): LockedSource[] {
+  return [
+    ...lock.packs.map((pack) => ({ hash: pack.hash, path: pack.path })),
+    ...lock.assets.flatMap((asset) => [
+      ...(asset.contract ? [asset.contract] : []),
+      ...asset.payloads,
+    ]),
+  ];
+}
+
+/** Returns every source path that the current index says should be locked. */
+function indexSources(rootPath: string, index: PackRepositoryIndex): LockedSource[] {
+  return index.packs.flatMap((pack) => [
+    { hash: "", path: relativePath(rootPath, pack.packFilePath) },
+    ...pack.assets.flatMap((asset) => [
+      ...(asset.contract ? [{ hash: "", path: relativePath(rootPath, asset.contract.path) }] : []),
+      ...asset.payloadPaths.map((payloadPath) => ({
+        hash: "",
+        path: relativePath(rootPath, payloadPath),
+      })),
+    ]),
+  ]);
+}
+
+/** Validates parsed YAML before any lockfile path is trusted. */
+function validatePackLock(value: unknown, path: string): PackLockReadResult {
+  const diagnostics: Diagnostic[] = [];
+
+  if (!isRecord(value)) {
+    return { diagnostics: [invalidLockfile(path, "pack.lock.yaml must contain a mapping.")] };
+  }
+
+  const lockfileVersion = value.lockfileVersion;
+  const tool = value.tool;
+  const packs = value.packs;
+  const assets = value.assets;
+  const decisions = value.decisions;
+  const outputs = value.outputs;
+
+  if (lockfileVersion !== 1) {
+    diagnostics.push(invalidLockfile(path, "pack.lock.yaml must have lockfileVersion: 1."));
+  }
+
+  if (!isRecord(tool) || tool.name !== "packport" || typeof tool.version !== "string") {
+    diagnostics.push(invalidLockfile(path, "pack.lock.yaml tool metadata is invalid."));
+  }
+
+  if (!Array.isArray(packs)) {
+    diagnostics.push(invalidLockfile(path, "pack.lock.yaml packs must be a list."));
+  }
+
+  if (!Array.isArray(assets)) {
+    diagnostics.push(invalidLockfile(path, "pack.lock.yaml assets must be a list."));
+  }
+
+  if (!Array.isArray(decisions)) {
+    diagnostics.push(invalidLockfile(path, "pack.lock.yaml decisions must be a list."));
+  }
+
+  if (!Array.isArray(outputs)) {
+    diagnostics.push(invalidLockfile(path, "pack.lock.yaml outputs must be a list."));
+  }
+
+  const lockedPacks = Array.isArray(packs)
+    ? packs.flatMap((pack) => validateLockedPack(pack, path, diagnostics))
+    : [];
+  const lockedAssets = Array.isArray(assets)
+    ? assets.flatMap((asset) => validateLockedAsset(asset, path, diagnostics))
+    : [];
+  const lockedDecisions = Array.isArray(decisions)
+    ? decisions.flatMap((decision) => validateStringEntry(decision, path, diagnostics, "decision"))
+    : [];
+  const lockedOutputs = Array.isArray(outputs)
+    ? outputs.flatMap((output) => validateStringEntry(output, path, diagnostics, "output"))
+    : [];
+
+  if (diagnostics.length > 0) {
+    return { diagnostics };
+  }
+
+  return {
+    diagnostics: [],
+    lock: {
+      assets: lockedAssets,
+      decisions: lockedDecisions,
+      lockfileVersion: 1,
+      outputs: lockedOutputs,
+      packs: lockedPacks,
+      tool: { name: "packport", version: (tool as { version: string }).version },
+    },
+  };
+}
+
+/** Validates one pack entry from a parsed lockfile. */
+function validateLockedPack(
+  value: unknown,
+  lockPath: string,
+  diagnostics: Diagnostic[],
+): LockedPack[] {
+  if (!isRecord(value)) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked pack entries must be mappings."));
+    return [];
+  }
+
+  if (
+    typeof value.id !== "string" ||
+    typeof value.version !== "string" ||
+    typeof value.hash !== "string" ||
+    !isValidLockPath(value.path)
+  ) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked pack entry is invalid."));
+    return [];
+  }
+
+  return [{ hash: value.hash, id: value.id, path: value.path, version: value.version }];
+}
+
+/** Validates one asset entry from a parsed lockfile. */
+function validateLockedAsset(
+  value: unknown,
+  lockPath: string,
+  diagnostics: Diagnostic[],
+): LockedAsset[] {
+  if (!isRecord(value)) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked asset entries must be mappings."));
+    return [];
+  }
+
+  const payloads = value.payloads;
+  const contract = value.contract;
+
+  if (typeof value.id !== "string" || typeof value.kind !== "string" || !Array.isArray(payloads)) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked asset entry is invalid."));
+    return [];
+  }
+
+  const lockedPayloads = payloads.flatMap((payload) =>
+    validateLockedSource(payload, lockPath, diagnostics),
+  );
+  const lockedContract =
+    contract === undefined ? undefined : validateLockedSource(contract, lockPath, diagnostics)[0];
+
+  return [
+    {
+      ...(lockedContract ? { contract: lockedContract } : {}),
+      id: value.id,
+      kind: value.kind,
+      payloads: lockedPayloads,
+    },
+  ];
+}
+
+/** Validates one path/hash pair from a parsed lockfile. */
+function validateLockedSource(
+  value: unknown,
+  lockPath: string,
+  diagnostics: Diagnostic[],
+): LockedSource[] {
+  if (!isRecord(value) || typeof value.hash !== "string" || !isValidLockPath(value.path)) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked source entry is invalid."));
+    return [];
+  }
+
+  return [{ hash: value.hash, path: value.path }];
+}
+
+/** Validates one string list entry from a parsed lockfile. */
+function validateStringEntry(
+  value: unknown,
+  lockPath: string,
+  diagnostics: Diagnostic[],
+  field: string,
+): string[] {
+  if (typeof value !== "string") {
+    diagnostics.push(invalidLockfile(lockPath, `Locked ${field} entries must be strings.`));
+    return [];
+  }
+
+  return [value];
+}
+
+/** Builds an invalid-lockfile diagnostic with a stable code. */
+function invalidLockfile(path: string, message: string): Diagnostic {
+  return { code: "invalid-lockfile", message, path, severity: "error" };
+}
+
+/** Checks that a lockfile path is relative and cannot leave the repository. */
+function isValidLockPath(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value !== "" &&
+    !value.includes("\\") &&
+    !isAbsolute(value) &&
+    !isWindowsAbsolutePath(value) &&
+    !value.split(/[\\/]+/).includes("..")
+  );
+}
+
+/** Checks Windows absolute paths even when packport runs on POSIX. */
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+}
+
+/** Narrows unknown parsed YAML values to records. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Converts an absolute source path into a portable slash-separated lockfile path. */
+function relativePath(rootPath: string, path: string): string {
+  return relative(rootPath, path).replaceAll("\\", "/");
+}
+
+/** Narrows Node filesystem errors that represent missing paths. */
+function isMissingPathError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}

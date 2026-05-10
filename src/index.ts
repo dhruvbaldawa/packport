@@ -5,9 +5,18 @@ export const packageName = "packport";
 
 export { checkPackRepository, formatDiagnostics } from "./core/check";
 export { discoverPackRepository } from "./core/discovery";
+export {
+  createPackLock,
+  detectLockDrift,
+  PACK_LOCK_FILE,
+  readPackLock,
+  serializePackLock,
+  writePackLock,
+} from "./core/lockfile";
 export { parseMarkdownContract } from "./core/markdown";
 export { runCli } from "./cli";
 export type { CheckResult } from "./core/check";
+export type { LockedAsset, LockedPack, LockedSource, PackLock } from "./core/lockfile";
 export type {
   AssetContract,
   AssetIndex,
