@@ -4,13 +4,19 @@
 import type { Diagnostic, PortableRef, PortableRefNamespace } from "./types";
 
 const PORTABLE_REF_PATTERN = /(?<!\{)\{\{(?<body>[^{}]*)\}\}(?!\})/g;
+const TARGET_NATIVE_PLACEHOLDER_PATTERN = /\{\{(?:ARGS|arg)\}\}|\$\{\{\{ARGS\}\}\}/g;
 const VALID_NAMESPACES = new Set<PortableRefNamespace>(["config", "mcp", "tool"]);
 const REF_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*)*$/;
+
+export type ScanPortableRefsOptions = {
+  readonly ignoreTargetNativePlaceholders?: boolean;
+};
 
 /** Scans text for explicit portable refs and reports unsupported template-like syntax. */
 export function scanPortableRefs(
   path: string,
   text: string,
+  options: ScanPortableRefsOptions = {},
 ): {
   readonly diagnostics: readonly Diagnostic[];
   readonly refs: readonly PortableRef[];
@@ -19,8 +25,10 @@ export function scanPortableRefs(
   const refs: PortableRef[] = [];
   const ignoredRanges: TextRange[] = [];
 
-  for (const match of text.matchAll(/\$\{\{\{ARGS\}\}\}/g)) {
-    ignoredRanges.push({ end: match.index + match[0].length, start: match.index });
+  if (options.ignoreTargetNativePlaceholders) {
+    for (const match of text.matchAll(TARGET_NATIVE_PLACEHOLDER_PATTERN)) {
+      ignoredRanges.push({ end: match.index + match[0].length, start: match.index });
+    }
   }
 
   for (const match of text.matchAll(PORTABLE_REF_PATTERN)) {

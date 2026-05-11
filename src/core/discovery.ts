@@ -160,7 +160,9 @@ async function discoverAsset(
       continue;
     }
 
-    payloadRefs.push(...(await collectPayloadRefs(payloadPath, diagnostics)));
+    payloadRefs.push(
+      ...(await collectPayloadRefs(payloadPath, convention.kind === "command", diagnostics)),
+    );
   }
 
   validateDeclaredPayloadRefs(payloadRefs, [...packDeclaredRefs, ...declaredRefs], diagnostics);
@@ -204,14 +206,18 @@ function collectDeclaredRefs(
 }
 
 /** Collects portable refs from a payload file without parsing any other payload semantics. */
-async function collectPayloadRefs(path: string, diagnostics: Diagnostic[]): Promise<PortableRef[]> {
+async function collectPayloadRefs(
+  path: string,
+  ignoreTargetNativePlaceholders: boolean,
+  diagnostics: Diagnostic[],
+): Promise<PortableRef[]> {
   const text = await safeReadFile(path);
 
   if (text === undefined) {
     return [];
   }
 
-  const result = scanPortableRefs(path, text);
+  const result = scanPortableRefs(path, text, { ignoreTargetNativePlaceholders });
   diagnostics.push(...result.diagnostics);
   diagnostics.push(...validateKnownPortableRefs(result.refs));
   return [...result.refs];

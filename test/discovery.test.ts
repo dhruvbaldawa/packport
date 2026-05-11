@@ -208,14 +208,49 @@ name: Essentials
 version: 1.0.0
 description: Core workflows.
 ---
+
+# Essentials
+
+## Needs
+
+- {{tool.git.read}} for repository inspection.
 `,
-      "packs/essentials/commands/plan/COMMAND.md": `Plan this request: $${"{{{ARGS}}}"}\n`,
+      "packs/essentials/commands/plan/COMMAND.md": [
+        `Plan this request: $${"{{{ARGS}}}"}`,
+        "Fix quality issues in `{{ARGS}}`.",
+        "Optimize `{{arg}}`.",
+        "Inspect the diff with {{tool.git.read}}.",
+      ].join("\n"),
     });
 
     const result = await discoverPackRepository(rootPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.index.packs[0]?.assets[0]?.payloadRefs).toEqual([]);
+    expect(result.index.packs[0]?.assets[0]?.payloadRefs.map((ref) => ref.raw)).toEqual([
+      "{{tool.git.read}}",
+    ]);
+  });
+
+  test("rejects command argument placeholders outside command payloads", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/instructions/repo-workflow/INSTRUCTION.md": "Use {{arg}} here.\n",
+    });
+
+    const result = await discoverPackRepository(rootPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unknown-portable-ref-namespace",
+      message: "Portable ref '{{arg}}' must use one of: config, mcp, tool.",
+      path: join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      severity: "error",
+    });
   });
 
   test("rejects unsupported portable ref namespaces and template-like expressions", async () => {
