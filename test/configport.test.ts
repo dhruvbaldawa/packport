@@ -931,6 +931,8 @@ description: Core workflows.
       stateRootPath,
       target: "opencode",
     });
+    const staleContent = await readFile(join(outputPath, "AGENTS.md"), "utf8");
+    await writeFile(join(outputPath, "AGENTS.md"), `${staleContent}\n`);
     const refreshedUserResult = await materializeConfigportInstructions({
       outputPath,
       pack: "essentials",

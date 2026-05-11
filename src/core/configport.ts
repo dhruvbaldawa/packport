@@ -1095,9 +1095,21 @@ function mergeManagedInstructionBlock(
   }
 
   const suffix = existingContent.slice(endIndex + end.length);
-  const normalizedSuffix = suffix.startsWith("\n") ? suffix.slice(1) : suffix;
+  const prefix = existingContent.slice(0, startIndex);
 
-  return `${existingContent.slice(0, startIndex)}${managedBlock}${normalizedSuffix}`;
+  return `${prefix}${managedBlock}${normalizeManagedBlockSuffix(suffix)}`;
+}
+
+function normalizeManagedBlockSuffix(suffix: string): string {
+  const leadingNewlines = suffix.match(/^\n+/)?.[0];
+
+  if (leadingNewlines === undefined) {
+    return suffix;
+  }
+
+  return leadingNewlines.length === suffix.length
+    ? ""
+    : `\n${suffix.slice(leadingNewlines.length)}`;
 }
 
 function managedInstructionStart(selection: ConfigportInstructionSelection): string {
