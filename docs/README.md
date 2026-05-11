@@ -37,7 +37,7 @@ The current code supports a useful bootstrap path:
 - validate portable pack source with `check`.
 - migrate Claude Code plugin source into portable pack source with `migrate-claude`.
 - generate Claude Code plugins and `.claude-plugin/marketplace.json` from portable packs.
-- generate OpenCode repo-local output from portable packs.
+- generate OpenCode package/config roots from portable packs.
 - generate Codex plugins and `.agents/plugins/marketplace.json` from portable packs.
 - generate Claude Code control plugins for the built-in `packport` and `configport` skills.
 - drive authoring, generation, release preparation, harness work, migration, and checks through

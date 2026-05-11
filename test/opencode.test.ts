@@ -60,11 +60,13 @@ payloads:
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.summary).toEqual({ agents: 1, commands: 1, files: 5, skills: 1 });
-    expect(JSON.parse(await readFile(join(outputPath, "opencode.json"), "utf8"))).toEqual({
+    expect(result.summary).toEqual({ agents: 1, commands: 1, files: 5, packages: 1, skills: 1 });
+    expect(
+      JSON.parse(await readFile(join(outputPath, "essentials/opencode.json"), "utf8")),
+    ).toEqual({
       $schema: "https://opencode.ai/config.json",
     });
-    expect(await readFile(join(outputPath, ".opencode/commands/plan.md"), "utf8")).toBe(
+    expect(await readFile(join(outputPath, "essentials/.opencode/commands/plan.md"), "utf8")).toBe(
       [
         "---",
         'description: "Plan implementation"',
@@ -75,7 +77,9 @@ payloads:
         "",
       ].join("\n"),
     );
-    expect(await readFile(join(outputPath, ".opencode/agents/reviewer.md"), "utf8")).toBe(
+    expect(
+      await readFile(join(outputPath, "essentials/.opencode/agents/reviewer.md"), "utf8"),
+    ).toBe(
       [
         "---",
         'description: "Reviews code"',
@@ -88,7 +92,9 @@ payloads:
         "",
       ].join("\n"),
     );
-    expect(await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8")).toBe(
+    expect(
+      await readFile(join(outputPath, "essentials/.opencode/skills/debugging/SKILL.md"), "utf8"),
+    ).toBe(
       [
         "---",
         "name: debugging",
@@ -102,9 +108,14 @@ payloads:
       ].join("\n"),
     );
     expect(
-      await readFile(join(outputPath, ".opencode/skills/debugging/reference/examples.md"), "utf8"),
+      await readFile(
+        join(outputPath, "essentials/.opencode/skills/debugging/reference/examples.md"),
+        "utf8",
+      ),
     ).toBe("# Examples\nUse OpenCode file read, grep, glob, and list permissions.\n");
-    await expect(lstat(join(outputPath, ".opencode/skills/debugging/ASSET.md"))).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "essentials/.opencode/skills/debugging/ASSET.md")),
+    ).rejects.toThrow();
   });
 
   test("skips built-in control packs unless explicitly included", async () => {
@@ -139,11 +150,13 @@ description: Control workflows.
     expect(result.diagnostics).toEqual([]);
     expect(result.summary.skills).toBe(1);
     await expect(
-      lstat(join(outputPath, ".opencode/skills/configure-pack/SKILL.md")),
+      lstat(join(outputPath, "configport-control/.opencode/skills/configure-pack/SKILL.md")),
     ).rejects.toThrow();
-    await expect(lstat(join(outputPath, ".opencode/skills/check-pack/SKILL.md"))).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "packport-control/.opencode/skills/check-pack/SKILL.md")),
+    ).rejects.toThrow();
     expect(
-      await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8"),
+      await readFile(join(outputPath, "essentials/.opencode/skills/debugging/SKILL.md"), "utf8"),
     ).toContain("name: debugging");
   });
 
@@ -181,10 +194,16 @@ description: Control workflows.
     expect(result.diagnostics).toEqual([]);
     expect(result.summary.skills).toBe(3);
     expect(
-      await readFile(join(outputPath, ".opencode/skills/configure-pack/SKILL.md"), "utf8"),
+      await readFile(
+        join(outputPath, "configport-control/.opencode/skills/configure-pack/SKILL.md"),
+        "utf8",
+      ),
     ).toContain("name: configure-pack");
     expect(
-      await readFile(join(outputPath, ".opencode/skills/check-pack/SKILL.md"), "utf8"),
+      await readFile(
+        join(outputPath, "packport-control/.opencode/skills/check-pack/SKILL.md"),
+        "utf8",
+      ),
     ).toContain("name: check-pack");
   });
 
@@ -224,9 +243,11 @@ description: Control workflows.
     expect(dogfoodResult.diagnostics).toEqual([]);
     expect(defaultResult.diagnostics).toEqual([]);
     await expect(
-      lstat(join(outputPath, ".opencode/skills/configure-pack/SKILL.md")),
+      lstat(join(outputPath, "configport-control/.opencode/skills/configure-pack/SKILL.md")),
     ).rejects.toThrow();
-    await expect(lstat(join(outputPath, ".opencode/skills/check-pack/SKILL.md"))).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "packport-control/.opencode/skills/check-pack/SKILL.md")),
+    ).rejects.toThrow();
     expect(lockResult.lock?.outputs.some((output) => output.path.includes("check-pack"))).toBe(
       false,
     );
@@ -258,7 +279,10 @@ description: Control workflows.
     const dogfoodResult = await generateOpenCodeOutput(rootPath, outputPath, {
       includeControlPacks: true,
     });
-    const staleOutputPath = join(outputPath, ".opencode/skills/check-pack/SKILL.md");
+    const staleOutputPath = join(
+      outputPath,
+      "packport-control/.opencode/skills/check-pack/SKILL.md",
+    );
     await rm(staleOutputPath, { force: true });
     await mkdir(staleOutputPath, { recursive: true });
     await writeFile(
@@ -272,12 +296,12 @@ description: Control workflows.
     expect(result.diagnostics).toContainEqual({
       code: "invalid-stale-opencode-output",
       message:
-        "Stale OpenCode output path must be a regular file: .packs/opencode/.opencode/skills/check-pack/SKILL.md.",
+        "Stale OpenCode output path must be a regular file: .packs/opencode/packport-control/.opencode/skills/check-pack/SKILL.md.",
       path: staleOutputPath,
       severity: "error",
     });
     expect(
-      await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8"),
+      await readFile(join(outputPath, "essentials/.opencode/skills/debugging/SKILL.md"), "utf8"),
     ).not.toContain("v2");
   });
 
@@ -305,13 +329,16 @@ description: Control workflows.
     const dogfoodResult = await generateOpenCodeOutput(rootPath, outputPath, {
       includeControlPacks: true,
     });
-    await rm(join(outputPath, ".opencode/skills/check-pack"), {
+    await rm(join(outputPath, "packport-control/.opencode/skills/check-pack"), {
       force: true,
       recursive: true,
     });
     await mkdir(join(outsidePath, "check-pack"), { recursive: true });
     await writeFile(join(outsidePath, "check-pack/SKILL.md"), "outside\n");
-    await symlink(join(outsidePath, "check-pack"), join(outputPath, ".opencode/skills/check-pack"));
+    await symlink(
+      join(outsidePath, "check-pack"),
+      join(outputPath, "packport-control/.opencode/skills/check-pack"),
+    );
     await writeFile(
       join(rootPath, "packs/essentials/skills/debugging/SKILL.md"),
       "# Debugging v2\n",
@@ -325,7 +352,7 @@ description: Control workflows.
     );
     expect(await readFile(join(outsidePath, "check-pack/SKILL.md"), "utf8")).toBe("outside\n");
     expect(
-      await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8"),
+      await readFile(join(outputPath, "essentials/.opencode/skills/debugging/SKILL.md"), "utf8"),
     ).not.toContain("v2");
   });
 
@@ -345,7 +372,7 @@ description: Core workflows.
     });
     const discovery = await discoverPackRepository(rootPath);
     const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
-      { kind: "package", packageName: "opencode", path: readmePath, target: "opencode" },
+      { kind: "package", packageName: "essentials", path: readmePath, target: "opencode" },
     ]);
     await writePackLock(rootPath, lock);
 
@@ -358,7 +385,9 @@ description: Core workflows.
       severity: "error",
     });
     expect(await readFile(readmePath, "utf8")).toBe("# Keep me\n");
-    await expect(lstat(join(outputPath, ".opencode/skills/debugging/SKILL.md"))).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "essentials/.opencode/skills/debugging/SKILL.md")),
+    ).rejects.toThrow();
   });
 
   test("normalizes Claude triple-brace command arguments without portable-ref diagnostics", async () => {
@@ -377,7 +406,7 @@ description: Core workflows.
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(await readFile(join(outputPath, ".opencode/commands/plan.md"), "utf8")).toBe(
+    expect(await readFile(join(outputPath, "essentials/.opencode/commands/plan.md"), "utf8")).toBe(
       ["---", 'description: "plan command"', "---", "", "Task: $ARGUMENTS", ""].join("\n"),
     );
   });
@@ -401,10 +430,13 @@ description: Core workflows.
     expect(result.diagnostics).toEqual([]);
     expect(lockResult.diagnostics).toEqual([]);
     expect(lockResult.lock?.outputs.map((output) => output.path)).toEqual([
-      ".packs/opencode/.opencode/commands/plan.md",
-      ".packs/opencode/opencode.json",
+      ".packs/opencode/essentials/.opencode/commands/plan.md",
+      ".packs/opencode/essentials/opencode.json",
     ]);
     expect(lockResult.lock?.outputs.every((output) => output.target === "opencode")).toBe(true);
+    expect(lockResult.lock?.outputs.every((output) => output.packageName === "essentials")).toBe(
+      true,
+    );
   });
 
   test("preserves accepted lockfile decisions while updating generated OpenCode outputs", async () => {
@@ -435,7 +467,7 @@ description: Core workflows.
     expect(result.diagnostics).toEqual([]);
     expect(lockResult.lock?.decisions).toEqual(["codex-command-as-skill:essentials/command/plan"]);
     expect(lockResult.lock?.outputs.map((output) => output.path)).toContain(
-      ".packs/opencode/.opencode/commands/plan.md",
+      ".packs/opencode/essentials/.opencode/commands/plan.md",
     );
   });
 
@@ -465,8 +497,8 @@ description: Core workflows.
     expect(result.diagnostics).toEqual([]);
     expect(lockResult.lock?.outputs.map((output) => output.path)).toEqual([
       ".packs/codex/essentials/skills/plan/SKILL.md",
-      ".packs/opencode/.opencode/commands/plan.md",
-      ".packs/opencode/opencode.json",
+      ".packs/opencode/essentials/.opencode/commands/plan.md",
+      ".packs/opencode/essentials/opencode.json",
     ]);
   });
 
@@ -489,7 +521,7 @@ description: Core workflows.
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "invalid-lockfile-yaml",
     );
-    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
+    await expect(lstat(join(outputPath, "essentials/opencode.json"))).rejects.toThrow();
   });
 
   test("rejects OpenCode output roots outside repo-local .packs", async () => {
@@ -513,7 +545,7 @@ description: Core workflows.
       path: outputPath,
       severity: "error",
     });
-    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
+    await expect(lstat(join(outputPath, "essentials/opencode.json"))).rejects.toThrow();
   });
 
   test("preserves existing OpenCode config keys", async () => {
@@ -529,11 +561,17 @@ description: Core workflows.
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
     await mkdir(outputPath, { recursive: true });
-    await writeFile(join(outputPath, "opencode.json"), `${JSON.stringify({ theme: "system" })}\n`);
+    await mkdir(join(outputPath, "essentials"), { recursive: true });
+    await writeFile(
+      join(outputPath, "essentials/opencode.json"),
+      `${JSON.stringify({ theme: "system" })}\n`,
+    );
 
     await generateOpenCodeOutput(rootPath, outputPath);
 
-    expect(JSON.parse(await readFile(join(outputPath, "opencode.json"), "utf8"))).toEqual({
+    expect(
+      JSON.parse(await readFile(join(outputPath, "essentials/opencode.json"), "utf8")),
+    ).toEqual({
       $schema: "https://opencode.ai/config.json",
       theme: "system",
     });
@@ -560,7 +598,9 @@ payload: README.md
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(await readFile(join(outputPath, ".opencode/skills/debugging/SKILL.md"), "utf8")).toBe(
+    expect(
+      await readFile(join(outputPath, "essentials/.opencode/skills/debugging/SKILL.md"), "utf8"),
+    ).toBe(
       [
         "---",
         "name: debugging",
@@ -571,9 +611,14 @@ payload: README.md
         "",
       ].join("\n"),
     );
-    await expect(lstat(join(outputPath, ".opencode/skills/debugging/README.md"))).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "essentials/.opencode/skills/debugging/README.md")),
+    ).rejects.toThrow();
     expect(
-      await readFile(join(outputPath, ".opencode/skills/debugging/reference/examples.md"), "utf8"),
+      await readFile(
+        join(outputPath, "essentials/.opencode/skills/debugging/reference/examples.md"),
+        "utf8",
+      ),
     ).toBe("# Examples\n");
   });
 
@@ -585,7 +630,7 @@ payload: README.md
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("missing-pack-file");
-    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
+    await expect(lstat(join(outputPath, "essentials/opencode.json"))).rejects.toThrow();
   });
 
   test("does not overwrite malformed existing OpenCode config", async () => {
@@ -601,15 +646,18 @@ description: Core workflows.
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
     await mkdir(outputPath, { recursive: true });
-    await writeFile(join(outputPath, "opencode.json"), "{\n");
+    await mkdir(join(outputPath, "essentials"), { recursive: true });
+    await writeFile(join(outputPath, "essentials/opencode.json"), "{\n");
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "invalid-opencode-config",
     );
-    expect(await readFile(join(outputPath, "opencode.json"), "utf8")).toBe("{\n");
-    await expect(lstat(join(outputPath, ".opencode/commands/plan.md"))).rejects.toThrow();
+    expect(await readFile(join(outputPath, "essentials/opencode.json"), "utf8")).toBe("{\n");
+    await expect(
+      lstat(join(outputPath, "essentials/.opencode/commands/plan.md")),
+    ).rejects.toThrow();
   });
 
   test("refuses symlinked existing OpenCode config paths", async () => {
@@ -626,8 +674,8 @@ description: Core workflows.
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
     await writeFile(join(outsidePath, "opencode.json"), "{}\n");
-    await mkdir(outputPath, { recursive: true });
-    await symlink(join(outsidePath, "opencode.json"), join(outputPath, "opencode.json"));
+    await mkdir(join(outputPath, "essentials"), { recursive: true });
+    await symlink(join(outsidePath, "opencode.json"), join(outputPath, "essentials/opencode.json"));
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
@@ -635,7 +683,9 @@ description: Core workflows.
       "unsafe-opencode-target-path",
     );
     expect(await readFile(join(outsidePath, "opencode.json"), "utf8")).toBe("{}\n");
-    await expect(lstat(join(outputPath, ".opencode/commands/plan.md"))).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "essentials/.opencode/commands/plan.md")),
+    ).rejects.toThrow();
   });
 
   test("refuses symlinked generated OpenCode target directories", async () => {
@@ -652,18 +702,19 @@ description: Core workflows.
       "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
     });
     await mkdir(outputPath, { recursive: true });
-    await symlink(outsidePath, join(outputPath, ".opencode"));
+    await mkdir(join(outputPath, "essentials"), { recursive: true });
+    await symlink(outsidePath, join(outputPath, "essentials/.opencode"));
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
       "unsafe-opencode-target-path",
     );
-    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
+    await expect(lstat(join(outputPath, "essentials/opencode.json"))).rejects.toThrow();
     await expect(lstat(join(outsidePath, "commands/plan.md"))).rejects.toThrow();
   });
 
-  test("reports target collisions without writing partial output", async () => {
+  test("keeps same OpenCode asset names separate by source pack", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = join(rootPath, ".packs/opencode");
     await writeFileTree(rootPath, {
@@ -685,12 +736,37 @@ description: Second pack.
 
     const result = await generateOpenCodeOutput(rootPath, outputPath);
 
-    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
-      "opencode-target-collision",
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary.commands).toBe(2);
+    expect(await readFile(join(outputPath, "a/.opencode/commands/plan.md"), "utf8")).toContain(
+      "# First",
     );
-    expect(result.summary.commands).toBe(0);
-    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
-    await expect(lstat(join(outputPath, ".opencode/commands/plan.md"))).rejects.toThrow();
+    expect(await readFile(join(outputPath, "b/.opencode/commands/plan.md"), "utf8")).toContain(
+      "# Second",
+    );
+  });
+
+  test("reports invalid OpenCode package names without writing them", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/Bad_Name/PACK.md": `---
+name: Bad
+version: 1.0.0
+description: Bad package.
+---
+`,
+      "packs/Bad_Name/commands/plan/COMMAND.md": "# Plan\n",
+    });
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+      "invalid-opencode-package-name",
+    );
+    expect(result.summary.packages).toBe(0);
+    await expect(lstat(join(outputPath, "Bad_Name/opencode.json"))).rejects.toThrow();
+    await expect(lstat(join(outputPath, "Bad_Name/.opencode/commands/plan.md"))).rejects.toThrow();
   });
 
   test("reports invalid OpenCode skill names without writing them", async () => {
@@ -712,8 +788,10 @@ description: Core workflows.
       "invalid-opencode-skill-name",
     );
     expect(result.summary.skills).toBe(0);
-    await expect(lstat(join(outputPath, "opencode.json"))).rejects.toThrow();
-    await expect(lstat(join(outputPath, ".opencode/skills/Bad_Name/SKILL.md"))).rejects.toThrow();
+    await expect(lstat(join(outputPath, "essentials/opencode.json"))).rejects.toThrow();
+    await expect(
+      lstat(join(outputPath, "essentials/.opencode/skills/Bad_Name/SKILL.md")),
+    ).rejects.toThrow();
   });
 
   test("reports too-long OpenCode skill names without writing them", async () => {
@@ -737,7 +815,7 @@ description: Core workflows.
     );
     expect(result.summary.skills).toBe(0);
     await expect(
-      lstat(join(outputPath, ".opencode/skills", longName, "SKILL.md")),
+      lstat(join(outputPath, "essentials/.opencode/skills", longName, "SKILL.md")),
     ).rejects.toThrow();
   });
 });

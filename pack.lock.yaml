@@ -176,55 +176,60 @@ outputs:
     packageName: packport-control
     path: .packs/codex/packport-control/skills/release-pack/SKILL.md
     target: codex
-  - hash: 4f88ba747cd9e3f12fb3b9a744543b7085cdde962b1e8190aa62b2ba2d618ab6
-    kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/add-harness/SKILL.md
-    target: opencode
   - hash: dba00cf3d8baacd75ac0065a040a48d5b441585dc17294878bc6b2ac3cb8c196
     kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/apply-pack/SKILL.md
-    target: opencode
-  - hash: 15f3f23c80f3f0706f5919c5e02a1d75558a9f9914ba39d588db30f9f81d659a
-    kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/author-pack/SKILL.md
-    target: opencode
-  - hash: 268f9c3280af26887b32ec4a5198798e469409e1d2be4598229e86e1f6ecfa0b
-    kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/check-pack/SKILL.md
+    packageName: configport-control
+    path: .packs/opencode/configport-control/.opencode/skills/apply-pack/SKILL.md
     target: opencode
   - hash: c080e852c0034f8a93b7687230cbc84f394ed19d1e458630f067b1403e7ee227
     kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/configure-pack/SKILL.md
+    packageName: configport-control
+    path: .packs/opencode/configport-control/.opencode/skills/configure-pack/SKILL.md
     target: opencode
   - hash: 22b0f70195402e6b144de906228928a2feb18feedfdf9d13942e50dc36d1fee7
     kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/configure-tools/SKILL.md
-    target: opencode
-  - hash: 83399eaea8a47d88204d4115180e977648f9cc7c6b26b89423d0ae19f909c781
-    kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/generate-pack/SKILL.md
-    target: opencode
-  - hash: 6ebcf1ccdd0b2a316673d31ed5f451f29e8a9b03a0689f74d688f231d99b7349
-    kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/migrate-claude/SKILL.md
-    target: opencode
-  - hash: 9ad0d1eb25734a94d41ca5b6ac0cf94d50033cb96caa7b4a4f739f9377135577
-    kind: package
-    packageName: opencode
-    path: .packs/opencode/.opencode/skills/release-pack/SKILL.md
+    packageName: configport-control
+    path: .packs/opencode/configport-control/.opencode/skills/configure-tools/SKILL.md
     target: opencode
   - hash: 3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1
     kind: package
-    packageName: opencode
-    path: .packs/opencode/opencode.json
+    packageName: configport-control
+    path: .packs/opencode/configport-control/opencode.json
+    target: opencode
+  - hash: 4f88ba747cd9e3f12fb3b9a744543b7085cdde962b1e8190aa62b2ba2d618ab6
+    kind: package
+    packageName: packport-control
+    path: .packs/opencode/packport-control/.opencode/skills/add-harness/SKILL.md
+    target: opencode
+  - hash: 15f3f23c80f3f0706f5919c5e02a1d75558a9f9914ba39d588db30f9f81d659a
+    kind: package
+    packageName: packport-control
+    path: .packs/opencode/packport-control/.opencode/skills/author-pack/SKILL.md
+    target: opencode
+  - hash: 268f9c3280af26887b32ec4a5198798e469409e1d2be4598229e86e1f6ecfa0b
+    kind: package
+    packageName: packport-control
+    path: .packs/opencode/packport-control/.opencode/skills/check-pack/SKILL.md
+    target: opencode
+  - hash: 83399eaea8a47d88204d4115180e977648f9cc7c6b26b89423d0ae19f909c781
+    kind: package
+    packageName: packport-control
+    path: .packs/opencode/packport-control/.opencode/skills/generate-pack/SKILL.md
+    target: opencode
+  - hash: 6ebcf1ccdd0b2a316673d31ed5f451f29e8a9b03a0689f74d688f231d99b7349
+    kind: package
+    packageName: packport-control
+    path: .packs/opencode/packport-control/.opencode/skills/migrate-claude/SKILL.md
+    target: opencode
+  - hash: 9ad0d1eb25734a94d41ca5b6ac0cf94d50033cb96caa7b4a4f739f9377135577
+    kind: package
+    packageName: packport-control
+    path: .packs/opencode/packport-control/.opencode/skills/release-pack/SKILL.md
+    target: opencode
+  - hash: 3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1
+    kind: package
+    packageName: packport-control
+    path: .packs/opencode/packport-control/opencode.json
     target: opencode
 packs:
   - hash: e05d97d93f0c683295d1ecf44b94e072c6e8e57f1c832dfcc19146115e3ad9bb

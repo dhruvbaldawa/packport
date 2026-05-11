@@ -470,11 +470,11 @@ describe("runCli", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      `Generated OpenCode output at ${outputPath} with 1 command(s), 0 agent(s), and 0 skill(s).`,
+      `Generated OpenCode output at ${outputPath} with 1 package(s), 1 command(s), 0 agent(s), and 0 skill(s).`,
     );
-    expect(await readFile(join(outputPath, ".opencode/commands/commit.md"), "utf8")).toBe(
-      ["---", 'description: "commit command"', "---", "", "# Commit", ""].join("\n"),
-    );
+    expect(
+      await readFile(join(outputPath, "essentials/.opencode/commands/commit.md"), "utf8"),
+    ).toBe(["---", 'description: "commit command"', "---", "", "# Commit", ""].join("\n"));
   });
 
   test("accepts explicit control-pack inclusion for OpenCode dogfood generation", async () => {
@@ -491,10 +491,13 @@ describe("runCli", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      `Generated OpenCode output at ${outputPath} with 1 command(s), 0 agent(s), and 1 skill(s).`,
+      `Generated OpenCode output at ${outputPath} with 2 package(s), 1 command(s), 0 agent(s), and 1 skill(s).`,
     );
     expect(
-      await readFile(join(outputPath, ".opencode/skills/check-pack/SKILL.md"), "utf8"),
+      await readFile(
+        join(outputPath, "packport-control/.opencode/skills/check-pack/SKILL.md"),
+        "utf8",
+      ),
     ).toContain("name: check-pack");
   });
 

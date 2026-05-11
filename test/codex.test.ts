@@ -634,9 +634,9 @@ description: Core workflows.
 
   test("preserves other target output records while updating Codex outputs", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
-    const opencodeOutputPath = join(rootPath, ".packs/opencode/opencode.json");
+    const opencodeOutputPath = join(rootPath, ".packs/opencode/essentials/opencode.json");
     await writeFileTree(rootPath, {
-      ".packs/opencode/opencode.json": "{}\n",
+      ".packs/opencode/essentials/opencode.json": "{}\n",
       "packs/essentials/PACK.md": `---
 name: Essentials
 version: 1.0.0
@@ -647,7 +647,7 @@ description: Core workflows.
     });
     const discovery = await discoverPackRepository(rootPath);
     const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
-      { kind: "package", packageName: "opencode", path: opencodeOutputPath, target: "opencode" },
+      { kind: "package", packageName: "essentials", path: opencodeOutputPath, target: "opencode" },
     ]);
     await writePackLock(rootPath, lock);
 
@@ -656,7 +656,7 @@ description: Core workflows.
 
     expect(result.diagnostics).toEqual([]);
     expect(lockResult.lock?.outputs.map((output) => output.path)).toContain(
-      ".packs/opencode/opencode.json",
+      ".packs/opencode/essentials/opencode.json",
     );
     expect(lockResult.lock?.outputs.map((output) => output.path)).toContain(
       ".packs/codex/essentials/skills/debugging/SKILL.md",

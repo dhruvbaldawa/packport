@@ -37,9 +37,9 @@ WARNING <code> <path>: <message>
 packport opencode generate <pack-root> <output-root> [--include-control-packs]
 ```
 
-Generates OpenCode repo-local output from `packs/` under `<pack-root>`.
+Generates one OpenCode package/config root per source pack under `<output-root>`.
 
-Summary output includes generated command, agent, and skill counts.
+Summary output includes generated package, command, agent, and skill counts.
 
 By default, built-in `packport-control` and `configport-control` packs are skipped. Use
 `--include-control-packs` only when regenerating packport's dogfood control output.

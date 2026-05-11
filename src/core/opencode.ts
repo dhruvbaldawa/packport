@@ -1,4 +1,4 @@
-// ABOUTME: Generates OpenCode repo-local output from portable pack source.
+// ABOUTME: Generates one OpenCode repo-local package per portable source pack.
 // ABOUTME: Adapts command and agent markdown while copying skill payload directories.
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -18,6 +18,7 @@ export type GenerateOpenCodeResult = {
     readonly agents: number;
     readonly commands: number;
     readonly files: number;
+    readonly packages: number;
     readonly skills: number;
   };
 };
@@ -55,6 +56,7 @@ export async function generateOpenCodeOutput(
   let commands = 0;
   let agents = 0;
   let skills = 0;
+  let packages = 0;
   const generatedPaths = new Set<string>();
   const operations: WriteOperation[] = [];
   let lockDecisions: readonly string[] = [];
@@ -70,72 +72,19 @@ export async function generateOpenCodeOutput(
   }
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    const configDiagnostic = await planOpenCodeConfig(outputPath, operations);
-
-    if (configDiagnostic) {
-      diagnostics.push(configDiagnostic);
-    }
-  }
-
-  if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     for (const pack of userGenerationPacks(discovery.index.packs, options.includeControlPacks)) {
-      for (const asset of pack.assets) {
-        if (asset.kind === "command") {
-          const generated = await writeAdaptedMarkdownAsset(
-            asset,
-            outputPath,
-            "commands",
-            adaptCommandMarkdown,
-            operations,
-            generatedPaths,
-            diagnostics,
-          );
+      const plan = await planOpenCodePackage(
+        pack,
+        outputPath,
+        operations,
+        generatedPaths,
+        diagnostics,
+      );
 
-          if (generated) {
-            commands += 1;
-          }
-          continue;
-        }
-
-        if (asset.kind === "agent") {
-          const generated = await writeAdaptedMarkdownAsset(
-            asset,
-            outputPath,
-            "agents",
-            adaptAgentMarkdown,
-            operations,
-            generatedPaths,
-            diagnostics,
-          );
-
-          if (generated) {
-            agents += 1;
-          }
-          continue;
-        }
-
-        if (asset.kind === "skill") {
-          const generated = await copySkillAsset(
-            asset,
-            outputPath,
-            operations,
-            generatedPaths,
-            diagnostics,
-          );
-
-          if (generated) {
-            skills += 1;
-          }
-          continue;
-        }
-
-        diagnostics.push({
-          code: "unsupported-opencode-asset",
-          message: `OpenCode generation does not support ${asset.kind} assets yet.`,
-          path: asset.directoryPath,
-          severity: "warning",
-        });
-      }
+      agents += plan.agents;
+      commands += plan.commands;
+      packages += plan.packages;
+      skills += plan.skills;
     }
   }
 
@@ -160,6 +109,7 @@ export async function generateOpenCodeOutput(
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     commands = 0;
     agents = 0;
+    packages = 0;
     skills = 0;
   } else {
     await removeStaleOpenCodeOutputs(rootPath, preservedOutputs, operations);
@@ -172,12 +122,7 @@ export async function generateOpenCodeOutput(
       rootPath,
       discovery.index,
       PACKPORT_TOOL_VERSION,
-      files.map((file) => ({
-        kind: "package",
-        packageName: "opencode",
-        path: file,
-        target: "opencode",
-      })),
+      files.map((file) => openCodeGeneratedOutput(file, outputPath)),
       "opencode",
       lockDecisions,
       preservedOutputs,
@@ -189,8 +134,122 @@ export async function generateOpenCodeOutput(
     files,
     outputPath,
     rootPath,
-    summary: { agents, commands, files: files.length, skills },
+    summary: { agents, commands, files: files.length, packages, skills },
   };
+}
+
+type OpenCodePackagePlan = {
+  readonly agents: number;
+  readonly commands: number;
+  readonly packages: number;
+  readonly skills: number;
+};
+
+function openCodeGeneratedOutput(
+  path: string,
+  outputPath: string,
+): {
+  readonly kind: "package";
+  readonly packageName?: string;
+  readonly path: string;
+  readonly target: "opencode";
+} {
+  const [packageName] = relative(outputPath, path).split(sep);
+
+  return {
+    kind: "package",
+    ...(packageName ? { packageName } : {}),
+    path,
+    target: "opencode",
+  };
+}
+
+async function planOpenCodePackage(
+  pack: PackIndex,
+  outputPath: string,
+  operations: WriteOperation[],
+  generatedPaths: Set<string>,
+  diagnostics: Diagnostic[],
+): Promise<OpenCodePackagePlan> {
+  if (!isValidOpenCodePackageName(pack.id)) {
+    diagnostics.push({
+      code: "invalid-opencode-package-name",
+      message: `OpenCode package names must be lowercase alphanumeric with single hyphen separators: ${pack.id}.`,
+      path: pack.directoryPath,
+      severity: "error",
+    });
+    return { agents: 0, commands: 0, packages: 0, skills: 0 };
+  }
+
+  const packagePath = join(outputPath, pack.id);
+  const configDiagnostic = await planOpenCodeConfig(packagePath, operations);
+  let commands = 0;
+  let agents = 0;
+  let skills = 0;
+
+  if (configDiagnostic) {
+    diagnostics.push(configDiagnostic);
+  }
+
+  for (const asset of pack.assets) {
+    if (asset.kind === "command") {
+      const generated = await writeAdaptedMarkdownAsset(
+        asset,
+        packagePath,
+        "commands",
+        adaptCommandMarkdown,
+        operations,
+        generatedPaths,
+        diagnostics,
+      );
+
+      if (generated) {
+        commands += 1;
+      }
+      continue;
+    }
+
+    if (asset.kind === "agent") {
+      const generated = await writeAdaptedMarkdownAsset(
+        asset,
+        packagePath,
+        "agents",
+        adaptAgentMarkdown,
+        operations,
+        generatedPaths,
+        diagnostics,
+      );
+
+      if (generated) {
+        agents += 1;
+      }
+      continue;
+    }
+
+    if (asset.kind === "skill") {
+      const generated = await copySkillAsset(
+        asset,
+        packagePath,
+        operations,
+        generatedPaths,
+        diagnostics,
+      );
+
+      if (generated) {
+        skills += 1;
+      }
+      continue;
+    }
+
+    diagnostics.push({
+      code: "unsupported-opencode-asset",
+      message: `OpenCode generation does not support ${asset.kind} assets yet.`,
+      path: asset.directoryPath,
+      severity: "warning",
+    });
+  }
+
+  return { agents, commands, packages: 1, skills };
 }
 
 async function removeStaleOpenCodeOutputs(
@@ -730,6 +789,11 @@ function normalizeAgentColor(color: string): string | undefined {
 /** Checks OpenCode's native skill-name grammar. */
 function isValidOpenCodeSkillName(name: string): boolean {
   return name.length >= 1 && name.length <= 64 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);
+}
+
+/** Checks pack directory names before using them as generated OpenCode package names. */
+function isValidOpenCodePackageName(name: string): boolean {
+  return isValidOpenCodeSkillName(name);
 }
 
 /** Falls back when a portable skill has no OpenCode-compatible description. */

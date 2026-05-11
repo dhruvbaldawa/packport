@@ -298,7 +298,7 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
           `${diagnostic.severity.toUpperCase()} ${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`,
       )
       .join("\n");
-    const summary = `Generated OpenCode output at ${result.outputPath} with ${result.summary.commands} command(s), ${result.summary.agents} agent(s), and ${result.summary.skills} skill(s).`;
+    const summary = `Generated OpenCode output at ${result.outputPath} with ${result.summary.packages} package(s), ${result.summary.commands} command(s), ${result.summary.agents} agent(s), and ${result.summary.skills} skill(s).`;
 
     return {
       exitCode: ok ? 0 : 1,

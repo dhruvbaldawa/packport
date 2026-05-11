@@ -1153,6 +1153,7 @@ These journeys are acceptance tests for the boundaries above, not a second copy 
 ### Generate OpenCode Packages
 
 - The OpenCode resolver chooses one inclusion path per logical asset and target scope.
+- OpenCode output includes one generated package/config root per source pack under `.packs/opencode/<pack>`.
 - Compatibility mode is explicit.
 - The target validator catches output path conflicts; the emitter only serializes the resolved plan.
 

@@ -31,16 +31,17 @@ bun src/cli.ts opencode generate . .packs/opencode
 The OpenCode emitter writes:
 
 ```text
-.packs/opencode/opencode.json
-.packs/opencode/.opencode/commands/<name>.md
-.packs/opencode/.opencode/agents/<name>.md
-.packs/opencode/.opencode/skills/<name>/SKILL.md
+.packs/opencode/<pack>/opencode.json
+.packs/opencode/<pack>/.opencode/commands/<name>.md
+.packs/opencode/<pack>/.opencode/agents/<name>.md
+.packs/opencode/<pack>/.opencode/skills/<name>/SKILL.md
 ```
 
 Current behavior:
 
 - built-in control packs are skipped unless `--include-control-packs` is passed for packport
   dogfood output.
+- packs become separate OpenCode package/config roots.
 - commands become OpenCode command markdown.
 - agents become OpenCode subagent markdown.
 - skills are copied into `.opencode/skills/`.

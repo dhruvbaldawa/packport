@@ -52,7 +52,7 @@ packport control-plugin claude-marketplace .
 These commands produce:
 
 - `.packs/claude/` with Claude Code plugins.
-- `.packs/opencode/` with OpenCode repo-local skills and `opencode.json`.
+- `.packs/opencode/<pack>/` with OpenCode package/config roots.
 - `.packs/codex/packport-control/` and `.packs/codex/configport-control/`.
 - `.agents/plugins/marketplace.json` for Codex local plugins.
 - `.packs/claude/packport/` and `.packs/claude/configport/`.
@@ -75,7 +75,8 @@ Use the generated marketplace files as the local package entry points for your h
 
 - Codex: `.agents/plugins/marketplace.json`
 - Claude Code: `.claude-plugin/marketplace.json`
-- OpenCode: `.packs/opencode/opencode.json` and `.packs/opencode/.opencode/skills/`
+- OpenCode: `.packs/opencode/<pack>/opencode.json` and
+  `.packs/opencode/<pack>/.opencode/skills/`
 
 Then invoke a generated control skill:
 

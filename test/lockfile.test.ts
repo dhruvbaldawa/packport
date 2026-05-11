@@ -19,12 +19,12 @@ import {
 describe("pack.lock.yaml", () => {
   test("creates deterministic lockfile content from discovered sources", async () => {
     const rootPath = await createValidPackRepository();
-    const outputPath = join(rootPath, ".packs/opencode/opencode.json");
+    const outputPath = join(rootPath, ".packs/opencode/essentials/opencode.json");
     await mkdir(join(outputPath, ".."), { recursive: true });
     await writeFile(outputPath, "{}\n");
     const discovery = await discoverPackRepository(rootPath);
     const outputs = [
-      { kind: "package" as const, packageName: "opencode", path: outputPath, target: "opencode" },
+      { kind: "package" as const, packageName: "essentials", path: outputPath, target: "opencode" },
     ];
     const lock = await createPackLock(rootPath, discovery.index, "0.0.0", outputs);
 
@@ -35,7 +35,7 @@ describe("pack.lock.yaml", () => {
     expect(serialized).toContain("path: packs/essentials/PACK.md");
     expect(serialized).toContain("path: packs/essentials/commands/commit/COMMAND.md");
     expect(serialized).toContain("path: packs/essentials/commands/commit/ASSET.md");
-    expect(serialized).toContain("path: .packs/opencode/opencode.json");
+    expect(serialized).toContain("path: .packs/opencode/essentials/opencode.json");
     expect(serialized).toContain("target: opencode");
     expect(serialized).toContain("kind: package");
     expect(serialized).not.toContain(rootPath);
@@ -84,12 +84,12 @@ describe("pack.lock.yaml", () => {
 
   test("detects changed locked generated output files", async () => {
     const rootPath = await createValidPackRepository();
-    const outputPath = join(rootPath, ".packs/opencode/opencode.json");
+    const outputPath = join(rootPath, ".packs/opencode/essentials/opencode.json");
     await mkdir(join(outputPath, ".."), { recursive: true });
     await writeFile(outputPath, "{}\n");
     const discovery = await discoverPackRepository(rootPath);
     const lock = await createPackLock(rootPath, discovery.index, "0.0.0", [
-      { kind: "package", packageName: "opencode", path: outputPath, target: "opencode" },
+      { kind: "package", packageName: "essentials", path: outputPath, target: "opencode" },
     ]);
     await writePackLock(rootPath, lock);
     await writeFile(outputPath, '{"changed":true}\n');
