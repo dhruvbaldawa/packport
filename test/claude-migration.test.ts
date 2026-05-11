@@ -1241,6 +1241,14 @@ describe("writeClaudeMigration", () => {
         name: "essentials",
         version: "1.0.0",
       }),
+      ".mcp.json": JSON.stringify({
+        mcpServers: {
+          context7: {
+            command: "npx",
+            args: ["-y", "@upstash/context7-mcp"],
+          },
+        },
+      }),
       "commands/commit.md": "# Commit\n",
       "skills/debugging/SKILL.md": "# Debugging\n",
       "skills/debugging/reference/examples.md": "# Examples\n",
@@ -1249,7 +1257,7 @@ describe("writeClaudeMigration", () => {
     const result = await writeClaudeMigration(rootPath, outputPath);
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.summary).toEqual({ files: 5 });
+    expect(result.summary).toEqual({ files: 6 });
     expect(await readFile(join(outputPath, "packs/essentials/PACK.md"), "utf8")).toBe(
       `---
 name: essentials
@@ -1258,6 +1266,16 @@ description: Essential workflows
 ---
 `,
     );
+    expect(
+      JSON.parse(await readFile(join(outputPath, "packs/essentials/.mcp.json"), "utf8")),
+    ).toEqual({
+      mcpServers: {
+        context7: {
+          args: ["-y", "@upstash/context7-mcp"],
+          command: "npx",
+        },
+      },
+    });
     expect(
       await readFile(join(outputPath, "packs/essentials/commands/commit/COMMAND.md"), "utf8"),
     ).toBe("# Commit\n");

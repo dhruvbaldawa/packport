@@ -54,6 +54,14 @@ payloads:
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n\nUse {{mcp.todoist}}.\n",
       "packs/essentials/skills/debugging/reference/examples.md":
         "# Debugging examples\nUse {{tool.git.read}}.\n",
+      "packs/essentials/.mcp.json": JSON.stringify({
+        mcpServers: {
+          context7: {
+            command: "npx",
+            args: ["-y", "@upstash/context7-mcp"],
+          },
+        },
+      }),
     });
 
     const result = await generateClaudeOutput(rootPath);
@@ -63,7 +71,7 @@ payloads:
     expect(result.summary).toEqual({
       agents: 1,
       commands: 1,
-      files: 6,
+      files: 7,
       marketplaceEntries: 1,
       plugins: 1,
       skills: 1,
@@ -99,6 +107,14 @@ payloads:
     ).toBe(
       "# Debugging examples\nUse Claude Code read tools plus Bash git status, diff, and log commands.\n",
     );
+    expect(JSON.parse(await readFile(join(outputPath, "essentials/.mcp.json"), "utf8"))).toEqual({
+      mcpServers: {
+        context7: {
+          args: ["-y", "@upstash/context7-mcp"],
+          command: "npx",
+        },
+      },
+    });
     await expect(lstat(join(outputPath, "essentials/skills/debugging/ASSET.md"))).rejects.toThrow();
     expect(JSON.parse(await readFile(join(rootPath, CLAUDE_MARKETPLACE_FILE), "utf8"))).toEqual({
       name: "packport-local",
@@ -115,6 +131,7 @@ payloads:
     expect(lockResult.lock?.outputs.map((output) => output.path)).toEqual([
       ".claude-plugin/marketplace.json",
       ".packs/claude/essentials/.claude-plugin/plugin.json",
+      ".packs/claude/essentials/.mcp.json",
       ".packs/claude/essentials/agents/reviewer.md",
       ".packs/claude/essentials/commands/plan.md",
       ".packs/claude/essentials/skills/debugging/reference/examples.md",
@@ -141,6 +158,12 @@ payloads:
         kind: "package",
         packageName: "essentials",
         path: ".packs/claude/essentials/.claude-plugin/plugin.json",
+        target: "claude",
+      },
+      {
+        kind: "package",
+        packageName: "essentials",
+        path: ".packs/claude/essentials/.mcp.json",
         target: "claude",
       },
       {

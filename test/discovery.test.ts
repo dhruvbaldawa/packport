@@ -27,6 +27,7 @@ description: Core workflows.
       "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
         "# Repo Workflow\n\nUse repository context.\n",
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n\nFind root causes.\n",
+      "packs/essentials/.mcp.json": '{"mcpServers":{}}\n',
     });
 
     const result = await discoverPackRepository(rootPath);
@@ -37,6 +38,9 @@ description: Core workflows.
     const [pack] = result.index.packs;
     expect(pack?.id).toBe("essentials");
     expect(pack?.name).toBe("Essentials");
+    expect(pack?.supportPaths.map((path) => path.endsWith("packs/essentials/.mcp.json"))).toEqual([
+      true,
+    ]);
     expect(pack?.assets.map((asset) => asset.id)).toEqual([
       "essentials/command/commit",
       "essentials/instruction/repo-workflow",

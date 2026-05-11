@@ -20,6 +20,7 @@ export type LockedPack = {
   readonly hash: string;
   readonly id: string;
   readonly path: string;
+  readonly support?: readonly LockedSource[];
   readonly version: string;
 };
 
@@ -77,6 +78,16 @@ export async function createPackLock(
       hash: await hashSourceFile(rootPath, pack.packFilePath),
       id: pack.id,
       path: relativePath(rootPath, pack.packFilePath),
+      ...(pack.supportPaths.length > 0
+        ? {
+            support: await Promise.all(
+              pack.supportPaths.map(async (supportPath) => ({
+                hash: await hashSourceFile(rootPath, supportPath),
+                path: relativePath(rootPath, supportPath),
+              })),
+            ),
+          }
+        : {}),
       version: pack.version,
     })),
   );
@@ -531,6 +542,7 @@ class SymlinkSourceError extends Error {
 function lockedSources(lock: PackLock): LockedSource[] {
   return [
     ...lock.packs.map((pack) => ({ hash: pack.hash, path: pack.path })),
+    ...lock.packs.flatMap((pack) => pack.support ?? []),
     ...lock.assets.flatMap((asset) => [
       ...(asset.contract ? [asset.contract] : []),
       ...asset.payloads,
@@ -542,6 +554,10 @@ function lockedSources(lock: PackLock): LockedSource[] {
 function indexSources(rootPath: string, index: PackRepositoryIndex): LockedSource[] {
   return index.packs.flatMap((pack) => [
     { hash: "", path: relativePath(rootPath, pack.packFilePath) },
+    ...pack.supportPaths.map((supportPath) => ({
+      hash: "",
+      path: relativePath(rootPath, supportPath),
+    })),
     ...pack.assets.flatMap((asset) => [
       ...(asset.contract ? [{ hash: "", path: relativePath(rootPath, asset.contract.path) }] : []),
       ...asset.payloadPaths.map((payloadPath) => ({
@@ -665,17 +681,33 @@ function validateLockedPack(
     return [];
   }
 
+  const supportValue = value.support;
+
   if (
     typeof value.id !== "string" ||
     typeof value.version !== "string" ||
     typeof value.hash !== "string" ||
-    !isValidLockPath(value.path)
+    !isValidLockPath(value.path) ||
+    (supportValue !== undefined && !Array.isArray(supportValue))
   ) {
     diagnostics.push(invalidLockfile(lockPath, "Locked pack entry is invalid."));
     return [];
   }
 
-  return [{ hash: value.hash, id: value.id, path: value.path, version: value.version }];
+  const support =
+    supportValue === undefined
+      ? undefined
+      : supportValue.flatMap((source) => validateLockedSource(source, lockPath, diagnostics));
+
+  return [
+    {
+      hash: value.hash,
+      id: value.id,
+      path: value.path,
+      ...(support && support.length > 0 ? { support } : {}),
+      version: value.version,
+    },
+  ];
 }
 
 /** Validates one asset entry from a parsed lockfile. */

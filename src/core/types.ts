@@ -76,6 +76,7 @@ export type PackIndex = {
   readonly id: string;
   readonly directoryPath: string;
   readonly packFilePath: string;
+  readonly supportPaths: readonly string[];
   readonly name: string;
   readonly version: string;
   readonly description: string;

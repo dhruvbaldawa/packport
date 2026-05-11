@@ -67,6 +67,24 @@ describe("pack.lock.yaml", () => {
     });
   });
 
+  test("locks and detects changed pack support files", async () => {
+    const rootPath = await createValidPackRepository();
+    await writeFile(join(rootPath, "packs/essentials/.mcp.json"), '{"mcpServers":{}}\n');
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0");
+
+    expect(serializePackLock(lock)).toContain("path: packs/essentials/.mcp.json");
+
+    await writeFile(join(rootPath, "packs/essentials/.mcp.json"), '{"changed":true}\n');
+
+    expect(await detectLockDrift(rootPath, lock, discovery.index)).toContainEqual({
+      code: "source-drift",
+      message: "Locked source file hash differs from current contents.",
+      path: join(rootPath, "packs/essentials/.mcp.json"),
+      severity: "error",
+    });
+  });
+
   test("detects missing locked source files", async () => {
     const rootPath = await createValidPackRepository();
     const discovery = await discoverPackRepository(rootPath);

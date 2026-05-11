@@ -42,7 +42,13 @@ export type ClaudeMigrationPlugin = {
   readonly description: string;
   readonly name: string;
   readonly path: string;
+  readonly supportFiles: readonly ClaudeMigrationSupportFile[];
   readonly version: string;
+};
+
+export type ClaudeMigrationSupportFile = {
+  readonly sourcePath: string;
+  readonly targetPath: string;
 };
 
 export type ClaudeMigrationScanResult = {
@@ -148,6 +154,7 @@ const REPOSITORY_INSTRUCTION_CANDIDATES: readonly {
 ];
 
 const MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
+const MCP_FILE = ".mcp.json";
 const PLUGIN_FILE = ".claude-plugin/plugin.json";
 const HARNESS_SIGNALS = ["claude code", "/plugin", ".claude"];
 const CONFIG_PATH_PATTERN =
@@ -230,6 +237,21 @@ export async function planClaudeMigration(
 
     if (!packPlanned) {
       continue;
+    }
+
+    for (const supportFile of plugin.supportFiles) {
+      addPlanFile(
+        files,
+        diagnostics,
+        plannedTargets,
+        {
+          action: "copy",
+          description: `Copy Claude plugin support file for ${plugin.name}.`,
+          sourcePath: supportFile.sourcePath,
+          targetPath: slashPath(join(packPath, supportFile.targetPath)),
+        },
+        supportFile.sourcePath,
+      );
     }
 
     for (const asset of plugin.assets) {
@@ -558,6 +580,7 @@ async function appendRepositoryInstructionPlugin(
       description: REPOSITORY_INSTRUCTION_PLUGIN_DESCRIPTION,
       name: pluginName,
       path: rootPath,
+      supportFiles: [],
       version: REPOSITORY_INSTRUCTION_PLUGIN_VERSION,
     },
   ];
@@ -661,14 +684,46 @@ async function scanClaudePluginWithManifest(
   }
 
   const assets = await scanClaudeAssets(pluginPath, manifest, diagnostics);
+  const supportFiles = await scanClaudePluginSupportFiles(pluginPath, diagnostics);
 
   return {
     assets,
     description: manifest.description,
     name: manifest.name,
     path: pluginPath,
+    supportFiles,
     version: manifest.version,
   };
+}
+
+/** Scans supported Claude plugin root files that should remain pack-level support. */
+async function scanClaudePluginSupportFiles(
+  pluginPath: string,
+  diagnostics: Diagnostic[],
+): Promise<ClaudeMigrationSupportFile[]> {
+  const mcpPath = join(pluginPath, MCP_FILE);
+
+  try {
+    const stats = await lstat(mcpPath);
+
+    if (stats.isFile()) {
+      return [{ sourcePath: mcpPath, targetPath: MCP_FILE }];
+    }
+
+    diagnostics.push({
+      code: "unsupported-claude-source",
+      message: "Claude plugin support files must be regular files.",
+      path: mcpPath,
+      severity: "error",
+    });
+    return [];
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
 }
 
 /** Scans convention-supported Claude asset directories in deterministic order. */

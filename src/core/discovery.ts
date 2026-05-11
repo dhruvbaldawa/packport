@@ -30,6 +30,7 @@ const ASSET_CONVENTIONS: readonly AssetConvention[] = [
   { directoryName: "instructions", kind: "instruction", payloadFile: "INSTRUCTION.md" },
   { directoryName: "skills", kind: "skill", payloadFile: "SKILL.md" },
 ];
+const PACK_SUPPORT_FILES = [".mcp.json"];
 
 /** Discovers all packs under the repository's packs/ directory. */
 export async function discoverPackRepository(rootPath: string): Promise<DiscoveryResult> {
@@ -83,6 +84,7 @@ async function discoverPack(
   const declaredRefs = collectDeclaredRefs(packFilePath, document.sections, diagnostics);
 
   const assets = await discoverPackAssets(packId, directoryPath, declaredRefs, diagnostics);
+  const supportPaths = await discoverPackSupportPaths(directoryPath, diagnostics);
 
   return {
     assets,
@@ -93,8 +95,45 @@ async function discoverPack(
     name: stringField(document.keys.name) ?? packId,
     packFilePath,
     sections: document.sections,
+    supportPaths,
     version: stringField(document.keys.version) ?? "",
   };
+}
+
+/** Discovers supported pack-level files that are copied into target packages. */
+async function discoverPackSupportPaths(
+  packPath: string,
+  diagnostics: Diagnostic[],
+): Promise<string[]> {
+  const supportPaths: string[] = [];
+
+  for (const fileName of PACK_SUPPORT_FILES) {
+    const supportPath = join(packPath, fileName);
+
+    try {
+      const stats = await lstat(supportPath);
+
+      if (stats.isFile()) {
+        supportPaths.push(supportPath);
+        continue;
+      }
+
+      diagnostics.push({
+        code: "unsupported-pack-support",
+        message: `Pack support file ${fileName} must be a regular file.`,
+        path: supportPath,
+        severity: "error",
+      });
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  return supportPaths;
 }
 
 /** Discovers all convention-supported asset directories inside one pack. */

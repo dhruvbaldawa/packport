@@ -2,7 +2,7 @@
 // ABOUTME: Emits repo-local .packs/claude packages while configport owns instruction placement.
 
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import {
   CONFIGPORT_CONTROL_PLUGIN_NAME,
   CONTROL_PLUGIN_NAME,
@@ -22,6 +22,7 @@ import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 export const CLAUDE_DEFAULT_OUTPUT_DIRECTORY = join(".packs", "claude");
 export const CLAUDE_MARKETPLACE_FILE = join(".claude-plugin", "marketplace.json");
 const PACKPORT_TOOL_VERSION = "0.0.0";
+const CLAUDE_SUPPORT_FILES = new Set([".mcp.json"]);
 
 export type GenerateClaudeResult = {
   readonly diagnostics: readonly Diagnostic[];
@@ -324,6 +325,28 @@ async function planClaudePlugin(
       path: asset.directoryPath,
       severity: "warning",
     });
+  }
+
+  for (const supportPath of pack.supportPaths) {
+    const fileName = basename(supportPath);
+
+    if (!CLAUDE_SUPPORT_FILES.has(fileName)) {
+      diagnostics.push({
+        code: "unsupported-claude-support-file",
+        message: `Claude generation does not support pack support file ${fileName}.`,
+        path: supportPath,
+        severity: "warning",
+      });
+      continue;
+    }
+
+    addCopyOperation(
+      join(pluginPath, fileName),
+      supportPath,
+      operations,
+      generatedPaths,
+      diagnostics,
+    );
   }
 
   addWriteOperation(
