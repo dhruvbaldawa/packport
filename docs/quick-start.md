@@ -35,8 +35,9 @@ Expected successful output:
 No packport issues found.
 ```
 
-This checks the `packs/` tree and reports invalid `PACK.md`, `ASSET.md`, missing payloads, and
-lockfile drift when `pack.lock.yaml` exists.
+This checks the `packs/` tree and reports invalid `PACK.md`, `ASSET.md`, missing payloads,
+lockfile drift, and committed generated output that no longer matches the current generators when
+`pack.lock.yaml` exists.
 
 ## 2. Regenerate Dogfood Output
 

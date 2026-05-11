@@ -18,6 +18,9 @@ WARNING <code> <path>: <message>
 
 A warning-only result is still usable. Any error should be fixed before generation.
 
+When `pack.lock.yaml` exists, `check` also replays the locked target generators in a temporary
+workspace and compares committed generated files and the lockfile with the expected current output.
+
 During target generation, command, agent, and skill primary payloads render declared `{{tool.*}}`
 and `{{mcp.*}}` refs into target-specific prose. `{{config.*}}` refs are profile-local and block
 package generation unless they are handled later through configport materialization.

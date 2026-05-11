@@ -27,7 +27,7 @@ assets:
   - id: packport-control/skill/check-pack
     kind: skill
     payloads:
-      - hash: 2d7afa845edfd947b5f4b66964bbce292825ab6530a1ac131558abe9c79336db
+      - hash: 794c0e883d037a64b0ecae3754164273f4fb5fa5527119c887a5466d0e3097b5
         path: packs/packport-control/skills/check-pack/SKILL.md
   - id: packport-control/skill/generate-pack
     kind: skill
@@ -101,7 +101,7 @@ outputs:
     packageName: packport
     path: .packs/claude/packport/skills/author-pack/SKILL.md
     target: claude
-  - hash: 2d7afa845edfd947b5f4b66964bbce292825ab6530a1ac131558abe9c79336db
+  - hash: 794c0e883d037a64b0ecae3754164273f4fb5fa5527119c887a5466d0e3097b5
     kind: package
     packageName: packport
     path: .packs/claude/packport/skills/check-pack/SKILL.md
@@ -156,7 +156,7 @@ outputs:
     packageName: packport-control
     path: .packs/codex/packport-control/skills/author-pack/SKILL.md
     target: codex
-  - hash: 268f9c3280af26887b32ec4a5198798e469409e1d2be4598229e86e1f6ecfa0b
+  - hash: 4130e31905e155d1536717085a42d07b78af3198bdd9a5638740db008a6c1c25
     kind: package
     packageName: packport-control
     path: .packs/codex/packport-control/skills/check-pack/SKILL.md
@@ -206,7 +206,7 @@ outputs:
     packageName: packport-control
     path: .packs/opencode/packport-control/.opencode/skills/author-pack/SKILL.md
     target: opencode
-  - hash: 268f9c3280af26887b32ec4a5198798e469409e1d2be4598229e86e1f6ecfa0b
+  - hash: 4130e31905e155d1536717085a42d07b78af3198bdd9a5638740db008a6c1c25
     kind: package
     packageName: packport-control
     path: .packs/opencode/packport-control/.opencode/skills/check-pack/SKILL.md

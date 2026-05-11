@@ -18,6 +18,10 @@ packport check [root]
 
 Validates a portable pack repository. Defaults to the current working directory.
 
+When `pack.lock.yaml` exists, `check` also replays the locked target generators in a temporary
+workspace and reports committed generated output or lockfiles that differ from current generator
+output.
+
 Successful output:
 
 ```text

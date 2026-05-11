@@ -6,6 +6,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
 import { checkPackRepository, formatDiagnostics } from "../src/core/check";
+import { generateClaudeOutput } from "../src/core/claude";
+import { generateCodexOutput } from "../src/core/codex";
+import {
+  generateClaudeControlMarketplace,
+  generateClaudeControlPlugin,
+} from "../src/core/control-plugin";
+import { discoverPackRepository } from "../src/core/discovery";
+import { createPackLock, readPackLock, writePackLock } from "../src/core/lockfile";
+import { generateOpenCodeOutput } from "../src/core/opencode";
 import { runCli } from "../src/cli";
 
 describe("checkPackRepository", () => {
@@ -62,6 +71,170 @@ description: Core workflows.
 
     expect(result.ok).toBe(true);
     expect(formatDiagnostics(result.diagnostics)).toContain("WARNING unknown-section");
+  });
+
+  test("returns ok when generated OpenCode output matches current generators", async () => {
+    const rootPath = await createValidPackRepository();
+
+    await generateOpenCodeOutput(rootPath, join(rootPath, ".packs/opencode"));
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("reports generated output drift even when stale output hashes are locked", async () => {
+    const rootPath = await createValidPackRepository();
+    const generatedPath = join(rootPath, ".packs/opencode/essentials/.opencode/commands/commit.md");
+    await generateOpenCodeOutput(rootPath, join(rootPath, ".packs/opencode"));
+    await writeFile(generatedPath, "# Manually edited generated command\n");
+    await refreshLockFromCurrentGeneratedOutputs(rootPath);
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain("output-drift");
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-output-drift",
+      message: "Generated output differs from current generator output.",
+      path: generatedPath,
+      severity: "error",
+    });
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-lock-drift",
+      message: "pack.lock.yaml differs from the lockfile produced by current generators.",
+      path: join(rootPath, "pack.lock.yaml"),
+      severity: "error",
+    });
+  });
+
+  test("reports Claude generated output drift even when stale output hashes are locked", async () => {
+    const rootPath = await createValidPackRepository();
+    const generatedPath = join(rootPath, ".packs/claude/essentials/commands/commit.md");
+    await generateClaudeOutput(rootPath);
+    await writeFile(generatedPath, "# Manually edited Claude command\n");
+    await refreshLockFromCurrentGeneratedOutputs(rootPath);
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-output-drift",
+      message: "Generated output differs from current generator output.",
+      path: generatedPath,
+      severity: "error",
+    });
+  });
+
+  test("reports Codex generated output drift even when stale output hashes are locked", async () => {
+    const rootPath = await createValidPackRepository();
+    const generatedPath = join(rootPath, ".packs/codex/essentials/skills/commit/SKILL.md");
+    await generateCodexOutput(rootPath);
+    await writeFile(generatedPath, "# Manually edited Codex skill\n");
+    await refreshLockFromCurrentGeneratedOutputs(rootPath);
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-output-drift",
+      message: "Generated output differs from current generator output.",
+      path: generatedPath,
+      severity: "error",
+    });
+  });
+
+  test("returns ok for a repo with only Claude control plugin output locked", async () => {
+    const rootPath = await createControlPackRepository();
+
+    await generateClaudeControlPlugin(rootPath, join(rootPath, ".packs/claude/packport"), "0.0.0");
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("reports Claude control plugin drift even when stale output hashes are locked", async () => {
+    const rootPath = await createControlPackRepository();
+    const generatedPath = join(rootPath, ".packs/claude/packport/skills/check-pack/SKILL.md");
+    await generateClaudeControlPlugin(rootPath, join(rootPath, ".packs/claude/packport"), "0.0.0");
+    await writeFile(generatedPath, "# Manually edited control skill\n");
+    await refreshLockFromCurrentGeneratedOutputs(rootPath);
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-output-drift",
+      message: "Generated output differs from current generator output.",
+      path: generatedPath,
+      severity: "error",
+    });
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-lock-drift",
+      message: "pack.lock.yaml differs from the lockfile produced by current generators.",
+      path: join(rootPath, "pack.lock.yaml"),
+      severity: "error",
+    });
+  });
+
+  test("reports Claude control marketplace drift even when stale output hashes are locked", async () => {
+    const rootPath = await createFullControlPackRepository();
+    const marketplacePath = join(rootPath, ".claude-plugin/marketplace.json");
+    await generateClaudeControlPlugin(rootPath, join(rootPath, ".packs/claude/packport"), "0.0.0");
+    await generateClaudeControlPlugin(
+      rootPath,
+      join(rootPath, ".packs/claude/configport"),
+      "0.0.0",
+      "configport",
+    );
+    await generateClaudeControlMarketplace(rootPath);
+    await writeFile(
+      marketplacePath,
+      `${JSON.stringify({ name: "packport-local", owner: { name: "packport" }, plugins: [] }, null, 2)}\n`,
+    );
+    await refreshLockFromCurrentGeneratedOutputs(rootPath, [
+      { kind: "marketplace", path: marketplacePath, target: "claude" },
+    ]);
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-output-drift",
+      message: "Generated output differs from current generator output.",
+      path: marketplacePath,
+      severity: "error",
+    });
+    expect(result.diagnostics).toContainEqual({
+      code: "generated-lock-drift",
+      message: "pack.lock.yaml differs from the lockfile produced by current generators.",
+      path: join(rootPath, "pack.lock.yaml"),
+      severity: "error",
+    });
+  });
+
+  test("reports generator replay diagnostics with repository paths", async () => {
+    const rootPath = await createValidPackRepository();
+    const configPath = join(rootPath, ".packs/opencode/essentials/opencode.json");
+    await generateOpenCodeOutput(rootPath, join(rootPath, ".packs/opencode"));
+    await writeFile(configPath, "{\n");
+    await refreshLockFromCurrentGeneratedOutputs(rootPath);
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-opencode-config",
+      message: "Existing opencode.json must contain valid JSON.",
+      path: configPath,
+      severity: "error",
+    });
+    expect(result.diagnostics.map((diagnostic) => diagnostic.path).join("\n")).not.toContain(
+      "packport-generated-check",
+    );
   });
 });
 
@@ -964,4 +1137,83 @@ description: Control workflows.
   await writeFile(join(rootPath, "packs/packport-control/skills/check-pack/SKILL.md"), "# Check\n");
 
   return rootPath;
+}
+
+/** Creates a repository with only the built-in packport control pack source. */
+async function createControlPackRepository(): Promise<string> {
+  const rootPath = await mkdtemp(join(tmpdir(), "packport-check-control-"));
+  await mkdir(join(rootPath, "packs/packport-control/skills/check-pack"), { recursive: true });
+  await writeFile(
+    join(rootPath, "packs/packport-control/PACK.md"),
+    `---
+name: packport-control
+version: 0.0.0
+description: Control workflows.
+---
+`,
+  );
+  await writeFile(join(rootPath, "packs/packport-control/skills/check-pack/SKILL.md"), "# Check\n");
+
+  return rootPath;
+}
+
+/** Creates a repository with both built-in control pack sources. */
+async function createFullControlPackRepository(): Promise<string> {
+  const rootPath = await createControlPackRepository();
+  await mkdir(join(rootPath, "packs/configport-control/skills/configure-pack"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(rootPath, "packs/configport-control/PACK.md"),
+    `---
+name: configport-control
+version: 0.0.0
+description: Config control workflows.
+---
+`,
+  );
+  await writeFile(
+    join(rootPath, "packs/configport-control/skills/configure-pack/SKILL.md"),
+    "# Configure\n",
+  );
+
+  return rootPath;
+}
+
+/** Rewrites pack.lock.yaml so current generated bytes are locked even when they are stale. */
+async function refreshLockFromCurrentGeneratedOutputs(
+  rootPath: string,
+  additionalOutputs: readonly {
+    readonly kind: "marketplace" | "package";
+    readonly packageName?: string;
+    readonly path: string;
+    readonly target: string;
+  }[] = [],
+): Promise<void> {
+  const discovery = await discoverPackRepository(rootPath);
+  const lockResult = await readPackLock(rootPath);
+  const lock = lockResult.lock;
+
+  if (!lock) {
+    throw new Error("Expected pack.lock.yaml to exist.");
+  }
+
+  await writePackLock(
+    rootPath,
+    await createPackLock(
+      rootPath,
+      discovery.index,
+      lock.tool.version,
+      [
+        ...lock.outputs.map((output) => ({
+          kind: output.kind,
+          ...(output.packageName ? { packageName: output.packageName } : {}),
+          path: join(rootPath, output.path),
+          target: output.target,
+        })),
+        ...additionalOutputs,
+      ],
+      lock.decisions,
+    ),
+  );
 }
