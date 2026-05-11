@@ -139,6 +139,162 @@ Run inside Claude Code.
     expect(result.plugins[0]?.assets.every((asset) => asset.decisionRequired)).toBe(false);
   });
 
+  test("scans repo-level Claude instruction files as explicit candidates", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [
+          { description: "Essential workflows", name: "essentials", source: "./essentials" },
+        ],
+      }),
+      ".claude/CLAUDE.md": "# Repository Instructions\n",
+      "config/CLAUDE.md": "# User Instructions\n",
+      "essentials/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "essentials/commands/commit.md": "# Commit\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 3, plugins: 2 });
+    expect(result.plugins.map((plugin) => plugin.name)).toEqual([
+      "essentials",
+      "claude-instructions",
+    ]);
+    expect(result.plugins[1]?.assets).toEqual([
+      expect.objectContaining({
+        classification: "unclear",
+        decisionRequired: true,
+        kind: "instruction",
+        name: "project-claude",
+        path: ".claude/CLAUDE.md",
+        pluginName: "claude-instructions",
+      }),
+      expect.objectContaining({
+        classification: "unclear",
+        decisionRequired: true,
+        kind: "instruction",
+        name: "user-claude",
+        path: "config/CLAUDE.md",
+        pluginName: "claude-instructions",
+      }),
+    ]);
+  });
+
+  test("scans repo-level Claude instruction files beside standalone plugins", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      ".claude/CLAUDE.md": "# Repository Instructions\n",
+      "commands/commit.md": "# Commit\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ assets: 2, plugins: 2 });
+    expect(result.plugins.map((plugin) => plugin.name)).toEqual([
+      "essentials",
+      "claude-instructions",
+    ]);
+    expect(result.plugins[0]?.assets.map((asset) => `${asset.kind}:${asset.name}`)).toEqual([
+      "command:commit",
+    ]);
+    expect(result.plugins[1]?.assets).toEqual([
+      expect.objectContaining({
+        classification: "unclear",
+        decisionRequired: true,
+        kind: "instruction",
+        name: "project-claude",
+        path: ".claude/CLAUDE.md",
+        pluginName: "claude-instructions",
+      }),
+    ]);
+  });
+
+  test("does not merge repo-level Claude instructions into real plugins with the synthetic name", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [
+          {
+            description: "Real instruction workflows",
+            name: "claude-instructions",
+            source: "./claude-instructions",
+          },
+        ],
+      }),
+      ".claude/CLAUDE.md": "# Repository Instructions\n",
+      "claude-instructions/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Real instruction workflows",
+        name: "claude-instructions",
+        version: "1.0.0",
+      }),
+      "claude-instructions/commands/commit.md": "# Commit\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.plugins.map((plugin) => plugin.name)).toEqual([
+      "claude-instructions",
+      "claude-instructions-2",
+    ]);
+    expect(result.plugins[0]?.assets.map((asset) => `${asset.kind}:${asset.name}`)).toEqual([
+      "command:commit",
+    ]);
+    expect(result.plugins[1]?.assets).toEqual([
+      expect.objectContaining({
+        classification: "unclear",
+        decisionRequired: true,
+        kind: "instruction",
+        name: "project-claude",
+        path: ".claude/CLAUDE.md",
+        pluginName: "claude-instructions-2",
+      }),
+    ]);
+  });
+
+  test("rejects symlinked repo-level Claude instruction paths", async () => {
+    const rootPath = await createTempRepository();
+    const externalPath = await createTempRepository("packport-external-instructions-");
+    await writeFileTree(rootPath, {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [
+          { description: "Essential workflows", name: "essentials", source: "./essentials" },
+        ],
+      }),
+      "essentials/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "essentials/commands/commit.md": "# Commit\n",
+    });
+    await writeFileTree(externalPath, {
+      "CLAUDE.md": "# Outside Instructions\n",
+    });
+    await symlink(externalPath, join(rootPath, ".claude"), "dir");
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.plugins.map((plugin) => plugin.name)).toEqual(["essentials"]);
+    expect(result.diagnostics).toContainEqual({
+      code: "invalid-claude-instruction-source",
+      message: "Repo-level Claude instruction paths must not contain symlinks.",
+      path: join(rootPath, ".claude"),
+      severity: "error",
+    });
+  });
+
   test("reports structural facts without semantic config classification", async () => {
     const rootPath = await createTempRepository();
     await writeFileTree(rootPath, {
@@ -521,6 +677,26 @@ Run inside Claude Code.
       },
     ]);
   });
+
+  test("does not treat repo-level instructions alone as a Claude source", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude/CLAUDE.md": "# Repository Instructions\n",
+      "config/CLAUDE.md": "# User Instructions\n",
+    });
+
+    const result = await scanClaudeMigrationSource(rootPath);
+
+    expect(result.plugins).toEqual([]);
+    expect(result.diagnostics).toEqual([
+      {
+        code: "missing-claude-source",
+        message: "Expected .claude-plugin/marketplace.json or .claude-plugin/plugin.json.",
+        path: rootPath,
+        severity: "error",
+      },
+    ]);
+  });
 });
 
 describe("formatClaudeMigrationScan", () => {
@@ -616,6 +792,55 @@ describe("planClaudeMigration", () => {
     expect(result.files[1]).toMatchObject({
       action: "copy",
       sourcePath: join(rootPath, "CLAUDE.md"),
+    });
+  });
+
+  test("plans repo-level Claude instruction files after explicit acceptance", async () => {
+    const rootPath = await createTempRepository();
+    await writeFileTree(rootPath, {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [
+          { description: "Essential workflows", name: "essentials", source: "./essentials" },
+        ],
+      }),
+      ".claude/CLAUDE.md": "# Repository Instructions\n",
+      "config/CLAUDE.md": "# User Instructions\n",
+      "essentials/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "essentials/commands/commit.md": "# Commit\n",
+    });
+
+    const unresolved = await planClaudeMigration(rootPath);
+
+    expect(unresolved.diagnostics).toEqual([]);
+    expect(unresolved.summary).toEqual({ assets: 3, files: 5, plugins: 2, questions: 2 });
+    expect(
+      unresolved.questions.map((question) => `${question.asset.pluginName}/${question.asset.name}`),
+    ).toEqual(["claude-instructions/project-claude", "claude-instructions/user-claude"]);
+
+    const accepted = await planClaudeMigration(rootPath, {
+      acceptAssets: ["claude-instructions/project-claude", "claude-instructions/user-claude"],
+    });
+
+    expect(accepted.diagnostics).toEqual([]);
+    expect(accepted.summary).toEqual({ assets: 3, files: 5, plugins: 2, questions: 0 });
+    expect(accepted.files.map((file) => file.targetPath)).toEqual([
+      "packs/essentials/PACK.md",
+      "packs/essentials/commands/commit/COMMAND.md",
+      "packs/claude-instructions/PACK.md",
+      "packs/claude-instructions/instructions/project-claude/INSTRUCTION.md",
+      "packs/claude-instructions/instructions/user-claude/INSTRUCTION.md",
+    ]);
+    expect(accepted.files[3]).toMatchObject({
+      action: "copy",
+      sourcePath: join(rootPath, ".claude/CLAUDE.md"),
+    });
+    expect(accepted.files[4]).toMatchObject({
+      action: "copy",
+      sourcePath: join(rootPath, "config/CLAUDE.md"),
     });
   });
 
@@ -1097,6 +1322,45 @@ payloads:
     expect(
       await readFile(join(outputPath, "packs/todoist/commands/search/COMMAND.md"), "utf8"),
     ).toBe("Use $TODOIST_API_TOKEN.\n");
+  });
+
+  test("writes accepted repo-level instruction assets", async () => {
+    const rootPath = await createTempRepository();
+    const outputPath = await createTempRepository("packport-claude-output-");
+    await writeFileTree(rootPath, {
+      ".claude-plugin/marketplace.json": JSON.stringify({
+        plugins: [
+          { description: "Essential workflows", name: "essentials", source: "./essentials" },
+        ],
+      }),
+      ".claude/CLAUDE.md": "# Repository Instructions\n",
+      "config/CLAUDE.md": "# User Instructions\n",
+      "essentials/.claude-plugin/plugin.json": JSON.stringify({
+        description: "Essential workflows",
+        name: "essentials",
+        version: "1.0.0",
+      }),
+      "essentials/commands/commit.md": "# Commit\n",
+    });
+
+    const result = await writeClaudeMigration(rootPath, outputPath, {
+      acceptAssets: ["claude-instructions/project-claude", "claude-instructions/user-claude"],
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.summary).toEqual({ files: 5 });
+    expect(
+      await readFile(
+        join(outputPath, "packs/claude-instructions/instructions/project-claude/INSTRUCTION.md"),
+        "utf8",
+      ),
+    ).toBe("# Repository Instructions\n");
+    expect(
+      await readFile(
+        join(outputPath, "packs/claude-instructions/instructions/user-claude/INSTRUCTION.md"),
+        "utf8",
+      ),
+    ).toBe("# User Instructions\n");
   });
 
   test("does not write when migration planning has errors", async () => {

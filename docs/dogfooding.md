@@ -80,8 +80,44 @@ Validate and generate from the portable output:
 
 ```bash
 packport check /tmp/ccconfigs-portable
+packport claude generate /tmp/ccconfigs-portable
 packport codex generate /tmp/ccconfigs-portable
 packport opencode generate /tmp/ccconfigs-portable /tmp/ccconfigs-portable/.packs/opencode
+packport check /tmp/ccconfigs-portable
+```
+
+The target generators may warn that `instruction` assets are unsupported as plugin payloads. That
+is expected: runtime instruction placement is selected and materialized by configport, not emitted
+into generated plugin packages.
+
+For the current ccconfigs essentials dogfood path, keep the broader packs out until their hooks,
+scripts, and secrets have pack/configport decisions. Accept the reusable project/user Claude
+instruction candidates explicitly, because they live outside a Claude plugin and may contain local
+configuration policy:
+
+```bash
+packport migrate-claude write /path/to/ccconfigs /tmp/ccconfigs-portable \
+  --exclude-plugin writing \
+  --exclude-plugin experimental \
+  --exclude-plugin todoist \
+  --exclude-plugin notifications \
+  --exclude-asset essentials/claude-md-authoring \
+  --accept-asset essentials/project-setup \
+  --accept-asset claude-instructions/project-claude \
+  --accept-asset claude-instructions/user-claude
+```
+
+Then materialize selected instructions for a profile and target:
+
+```bash
+packport configport instructions put /tmp/ccconfigs-state personal codex claude-instructions project \
+  --instruction project-claude
+packport configport instructions put /tmp/ccconfigs-state personal codex claude-instructions user \
+  --instruction user-claude
+packport configport instructions apply /tmp/ccconfigs-state /tmp/ccconfigs-portable /tmp/ccconfigs-applied \
+  --profile personal --target codex --pack claude-instructions --scope project
+packport configport instructions apply /tmp/ccconfigs-state /tmp/ccconfigs-portable /tmp/ccconfigs-applied \
+  --profile personal --target codex --pack claude-instructions --scope user
 ```
 
 ## What Good Dogfooding Should Prove

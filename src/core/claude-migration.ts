@@ -34,6 +34,7 @@ export type ClaudeMigrationAsset = {
   readonly path: string;
   readonly pluginName: string;
   readonly reasons: readonly string[];
+  readonly sourcePath: string;
 };
 
 export type ClaudeMigrationPlugin = {
@@ -135,6 +136,16 @@ const ASSET_CONVENTIONS: readonly AssetConvention[] = [
   { directoryName: "skills", kind: "skill" },
 ];
 const CLAUDE_INSTRUCTION_FILE = "CLAUDE.md";
+const REPOSITORY_INSTRUCTION_PLUGIN_BASE_NAME = "claude-instructions";
+const REPOSITORY_INSTRUCTION_PLUGIN_DESCRIPTION = "Reusable Claude instruction files";
+const REPOSITORY_INSTRUCTION_PLUGIN_VERSION = "0.0.0";
+const REPOSITORY_INSTRUCTION_CANDIDATES: readonly {
+  readonly name: string;
+  readonly path: string;
+}[] = [
+  { name: "project-claude", path: join(".claude", CLAUDE_INSTRUCTION_FILE) },
+  { name: "user-claude", path: join("config", CLAUDE_INSTRUCTION_FILE) },
+];
 
 const MARKETPLACE_FILE = ".claude-plugin/marketplace.json";
 const PLUGIN_FILE = ".claude-plugin/plugin.json";
@@ -258,7 +269,7 @@ export async function planClaudeMigration(
             description: `Declare ${asset.kind} payloads for ${plugin.name}/${asset.name}.`,
             targetPath: slashPath(join(assetPath, "ASSET.md")),
           },
-          join(plugin.path, asset.path),
+          asset.sourcePath,
         );
       }
 
@@ -403,7 +414,11 @@ async function scanRoot(
   diagnostics: Diagnostic[],
 ): Promise<ClaudeMigrationPlugin[]> {
   if (marketplace.status === "ok") {
-    return await scanMarketplace(rootPath, marketplace.value, diagnostics);
+    return await appendRepositoryInstructionPlugin(
+      rootPath,
+      await scanMarketplace(rootPath, marketplace.value, diagnostics),
+      diagnostics,
+    );
   }
 
   if (marketplace.status === "invalid") {
@@ -421,7 +436,7 @@ async function scanRoot(
       diagnostics,
     );
 
-    return plugin ? [plugin] : [];
+    return plugin ? await appendRepositoryInstructionPlugin(rootPath, [plugin], diagnostics) : [];
   }
 
   return [];
@@ -517,6 +532,81 @@ async function scanMarketplace(
   }
 
   return plugins;
+}
+
+/** Adds repo-level Claude instruction files as explicit migration candidates. */
+async function appendRepositoryInstructionPlugin(
+  rootPath: string,
+  plugins: readonly ClaudeMigrationPlugin[],
+  diagnostics: Diagnostic[],
+): Promise<ClaudeMigrationPlugin[]> {
+  if (plugins.length === 0) {
+    return [...plugins];
+  }
+
+  const pluginName = repositoryInstructionPluginName(plugins);
+  const assets = await scanRepositoryInstructionAssets(rootPath, pluginName, diagnostics);
+
+  if (assets.length === 0) {
+    return [...plugins];
+  }
+
+  return [
+    ...plugins,
+    {
+      assets,
+      description: REPOSITORY_INSTRUCTION_PLUGIN_DESCRIPTION,
+      name: pluginName,
+      path: rootPath,
+      version: REPOSITORY_INSTRUCTION_PLUGIN_VERSION,
+    },
+  ];
+}
+
+/** Scans root-level user/project Claude instruction files without assigning them silently. */
+async function scanRepositoryInstructionAssets(
+  rootPath: string,
+  pluginName: string,
+  diagnostics: Diagnostic[],
+): Promise<ClaudeMigrationAsset[]> {
+  const assets: ClaudeMigrationAsset[] = [];
+
+  for (const candidate of REPOSITORY_INSTRUCTION_CANDIDATES) {
+    const sourcePath = join(rootPath, candidate.path);
+
+    if (!(await isSafeRepositoryInstructionPath(rootPath, candidate.path, diagnostics))) {
+      continue;
+    }
+
+    const text = await readTextFile(sourcePath, diagnostics);
+
+    if (text === undefined) {
+      continue;
+    }
+
+    assets.push(
+      createRepositoryInstructionAsset(candidate.name, pluginName, rootPath, sourcePath, text),
+    );
+  }
+
+  return assets;
+}
+
+/** Chooses a synthetic instruction pack name without colliding with real plugin names. */
+function repositoryInstructionPluginName(plugins: readonly ClaudeMigrationPlugin[]): string {
+  const pluginNames = new Set(plugins.map((plugin) => plugin.name));
+
+  if (!pluginNames.has(REPOSITORY_INSTRUCTION_PLUGIN_BASE_NAME)) {
+    return REPOSITORY_INSTRUCTION_PLUGIN_BASE_NAME;
+  }
+
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${REPOSITORY_INSTRUCTION_PLUGIN_BASE_NAME}-${suffix}`;
+
+    if (!pluginNames.has(candidate)) {
+      return candidate;
+    }
+  }
 }
 
 /** Scans one Claude plugin directory when its manifest is valid. */
@@ -753,6 +843,32 @@ function createAsset(
     name,
     path: assetPath,
     pluginName: manifest.name,
+    sourcePath: path,
+  };
+}
+
+/** Creates a repo-level instruction candidate that must be accepted or moved to configport. */
+function createRepositoryInstructionAsset(
+  name: string,
+  pluginName: string,
+  rootPath: string,
+  path: string,
+  text: string,
+): ClaudeMigrationAsset {
+  const facts = collectFacts(text);
+
+  return {
+    classification: "unclear",
+    decisionRequired: true,
+    facts,
+    kind: "instruction",
+    name,
+    path: slashPath(relative(rootPath, path)),
+    pluginName,
+    reasons: [
+      "Instruction file lives outside a Claude plugin; decide whether it is reusable pack source or configport-managed local state.",
+    ],
+    sourcePath: path,
   };
 }
 
@@ -875,7 +991,7 @@ async function collectPlannedPayloads(
   questions: ClaudeMigrationPlanQuestion[],
   options: { readonly includeQuestions: boolean } = { includeQuestions: true },
 ): Promise<PlannedPayload[]> {
-  const sourcePath = join(plugin.path, asset.path);
+  const sourcePath = asset.sourcePath;
 
   if (asset.kind !== "skill") {
     return [{ sourcePath, targetPath: payloadFileName(asset.kind) }];
@@ -1293,6 +1409,45 @@ async function isSafeMarketplaceSourcePath(
           code: "invalid-claude-plugin-source",
           message: "Claude marketplace plugin source paths must not contain symlinks.",
           path: join(rootPath, MARKETPLACE_FILE),
+          severity: "error",
+        });
+        return false;
+      }
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        return true;
+      }
+
+      throw error;
+    }
+  }
+
+  return true;
+}
+
+/** Checks repo-level instruction path components before reading migration candidates. */
+async function isSafeRepositoryInstructionPath(
+  rootPath: string,
+  source: string,
+  diagnostics: Diagnostic[],
+): Promise<boolean> {
+  let currentPath = rootPath;
+
+  for (const segment of source.split(/[\\/]+/)) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+
+    currentPath = join(currentPath, segment);
+
+    try {
+      const stats = await lstat(currentPath);
+
+      if (stats.isSymbolicLink()) {
+        diagnostics.push({
+          code: "invalid-claude-instruction-source",
+          message: "Repo-level Claude instruction paths must not contain symlinks.",
+          path: currentPath,
           severity: "error",
         });
         return false;
