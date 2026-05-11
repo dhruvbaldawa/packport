@@ -1094,9 +1094,10 @@ function mergeManagedInstructionBlock(
     return undefined;
   }
 
-  return `${existingContent.slice(0, startIndex)}${managedBlock}${existingContent.slice(
-    endIndex + end.length,
-  )}`;
+  const suffix = existingContent.slice(endIndex + end.length);
+  const normalizedSuffix = suffix.startsWith("\n") ? suffix.slice(1) : suffix;
+
+  return `${existingContent.slice(0, startIndex)}${managedBlock}${normalizedSuffix}`;
 }
 
 function managedInstructionStart(selection: ConfigportInstructionSelection): string {

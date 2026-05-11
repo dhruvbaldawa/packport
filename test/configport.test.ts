@@ -931,10 +931,30 @@ description: Core workflows.
       stateRootPath,
       target: "opencode",
     });
+    const refreshedUserResult = await materializeConfigportInstructions({
+      outputPath,
+      pack: "essentials",
+      packRootPath,
+      profile: "personal",
+      scope: "user",
+      stateRootPath,
+      target: "opencode",
+    });
+    const refreshedProjectResult = await materializeConfigportInstructions({
+      outputPath,
+      pack: "essentials",
+      packRootPath,
+      profile: "personal",
+      scope: "project",
+      stateRootPath,
+      target: "opencode",
+    });
     const content = await readFile(join(outputPath, "AGENTS.md"), "utf8");
 
     expect(projectResult.diagnostics).toEqual([]);
     expect(userResult.diagnostics).toEqual([]);
+    expect(refreshedUserResult.diagnostics).toEqual([]);
+    expect(refreshedProjectResult.diagnostics).toEqual([]);
     expect(content).toContain(
       "<!-- packport-managed-instructions:personal:opencode:essentials:project:start -->",
     );
@@ -943,6 +963,14 @@ description: Core workflows.
     );
     expect(content).toContain("Project guidance.");
     expect(content).toContain("User guidance.");
+    expect(content).toContain(
+      [
+        "<!-- packport-managed-instructions:personal:opencode:essentials:project:end -->",
+        "",
+        "<!-- packport-managed-instructions:personal:opencode:essentials:user:start -->",
+      ].join("\n"),
+    );
+    expect(content.endsWith("\n\n")).toBe(false);
   });
 
   test("blocks instruction materialization when a selected instruction is missing", async () => {
