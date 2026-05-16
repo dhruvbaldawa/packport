@@ -77,13 +77,11 @@ The writer creates source files such as:
 /tmp/portable-packs/packs/<plugin>/agents/<asset>/AGENT.md
 /tmp/portable-packs/packs/<plugin>/commands/<asset>/COMMAND.md
 /tmp/portable-packs/packs/<plugin>/instructions/<asset>/INSTRUCTION.md
-/tmp/portable-packs/packs/<plugin>/skills/<asset>/ASSET.md
 /tmp/portable-packs/packs/<plugin>/skills/<asset>/SKILL.md
 ```
 
-Skills with support files are written as multi-payload assets. The generated `ASSET.md` declares
-`SKILL.md` first and then the support files, so target generation keeps the skill body as the primary
-payload while still scanning and packaging reusable references.
+Skills with support files are written as normal skill directories. `SKILL.md` remains the primary
+payload and same-directory support files are discovered, locked, and packaged automatically.
 
 ## Migration Judgment
 

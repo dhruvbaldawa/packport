@@ -41,11 +41,14 @@ packs/<pack>/
 ```
 
 The payload file is opaque to packport except where a target emitter adapts native frontmatter.
-Support files inside a skill directory are copied by the OpenCode and Codex generators.
+Support files inside an asset directory are discovered automatically, recorded in
+`pack.lock.yaml`, and copied by generators that support that asset kind. Do not list reference
+files, examples, or helper scripts in `ASSET.md` just so they get packaged.
 
 `PACK.md` and `ASSET.md` are control-plane Markdown for packport, configport, and skills.
 `INSTRUCTION.md` is runtime payload Markdown: it is reusable guidance that configport can
-materialize into target files such as `CLAUDE.md`, `AGENTS.md`, or OpenCode rule/config files.
+materialize into target files. Claude selections write `CLAUDE.md`; Codex and OpenCode selections
+write `AGENTS.md`.
 
 ## Optional ASSET.md
 
@@ -58,7 +61,7 @@ Accepted frontmatter fields are:
 payload: README.md
 payloads:
   - SKILL.md
-  - helper.ts
+  - EXTRA.md
 ---
 ```
 
@@ -67,7 +70,17 @@ Rules:
 - use either `payload` or `payloads`, not both.
 - payload paths must be relative to the asset directory.
 - payload paths must not contain `..` or absolute paths.
+- do not use `payloads` to enumerate support files; support files are discovered automatically.
 - `templated` is not accepted.
+
+## Pack-Level MCP
+
+Put portable MCP server declarations in a pack-level `.mcp.json` using Claude's `mcpServers`
+shape. Generation distributes that declaration to every target:
+
+- Claude Code copies `.mcp.json` into the generated plugin.
+- OpenCode writes matching entries into `opencode.json`.
+- Codex writes a packport-managed MCP block into `.codex/config.toml`.
 
 ## Portable Refs
 

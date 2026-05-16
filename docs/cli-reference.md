@@ -35,46 +35,58 @@ ERROR <code> <path>: <message>
 WARNING <code> <path>: <message>
 ```
 
-## opencode generate
+## generate
 
 ```bash
-packport opencode generate <pack-root> <output-root> [--include-control-packs]
+packport generate [root] [--target <claude|opencode|codex>]... [--no-configport]
 ```
 
-Generates one OpenCode package/config root per source pack under `<output-root>`.
+Generates target packages from source packs. Defaults to the current working directory and, when
+`--target` is omitted, generates Claude Code, OpenCode, and Codex output in that stable order.
+`--target` is repeatable and duplicate targets are ignored.
 
-Summary output includes generated package, command, agent, and skill counts.
+Default output roots are:
 
-By default, built-in `packport-control` and `configport-control` packs are skipped. Use
-`--include-control-packs` only when regenerating packport's dogfood control output.
+- Claude Code: `<root>/.packs/claude` plus `<root>/.claude-plugin/marketplace.json`
+- OpenCode: `<root>/.packs/opencode`
+- Codex: `<root>/.packs/codex` plus `<root>/.agents/plugins/marketplace.json`
 
-## claude generate
+All discovered packs are generated, including control packs. If `<root>/.configport/configport.json`
+contains instruction selections for generated targets, `generate` materializes those managed
+instruction blocks into `<root>/CLAUDE.md` or `<root>/AGENTS.md`. Use `--no-configport` to skip
+that instruction materialization. Configport overlays remain explicit through `configport apply`.
+
+Examples:
 
 ```bash
-packport claude generate <pack-root> [output-root]
+packport generate .
+packport generate . --target codex
+packport generate . --target claude --target opencode --no-configport
 ```
 
-Generates one Claude Code plugin per pack and writes `.claude-plugin/marketplace.json` under the
-pack root. When `output-root` is omitted, output goes to `<pack-root>/.packs/claude`.
+Summary output includes one line per generated target and, when instruction selections are
+materialized, one configport line.
 
-Summary output includes plugin, command, agent, skill, and marketplace entry counts.
-
-Built-in control packs are skipped. Use `control-plugin claude ...` to package Claude Code control
-plugins.
-
-## codex generate
+## install
 
 ```bash
-packport codex generate <pack-root> [output-root] [--include-control-packs]
+packport install [root] [--target <claude|opencode|codex>]... [--dry-run] [--no-configport] \
+  [--codex-home <path>] [--agents-root <path>] \
+  [--claude-home <path>] [--opencode-config-root <path>]
 ```
 
-Generates one Codex plugin per pack and writes `.agents/plugins/marketplace.json` under the pack
-root. When `output-root` is omitted, output goes to `<pack-root>/.packs/codex`.
+Installs generated output into target-tool global configuration roots. Defaults to the current
+working directory and, when `--target` is omitted, installs Claude Code, OpenCode, and Codex in
+that stable order. Install runs generation first unless `--dry-run` is set.
 
-Summary output includes plugin, skill, agent, and marketplace entry counts.
+Default install roots are:
 
-By default, built-in `packport-control` and `configport-control` packs are skipped. Use
-`--include-control-packs` only when regenerating packport's dogfood control output.
+- Claude Code: `~/.claude/settings.json` plus `~/.claude/CLAUDE.md` for user instructions.
+- OpenCode: `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`.
+- Codex: `$CODEX_HOME` or `~/.codex`, plus `~/.agents/plugins/marketplace.json`.
+
+`--dry-run` reads existing generated output and prints planned writes without changing tool homes.
+`--no-configport` skips project and user instruction materialization during install.
 
 ## control-plugin claude
 

@@ -243,6 +243,203 @@ payloads:
     await expect(lstat(join(outputPath, "essentials/skills/review/SKILL.md"))).rejects.toThrow();
   });
 
+  test("writes pack MCP servers into a managed Codex config block", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/.mcp.json": JSON.stringify({
+        mcpServers: {
+          api: {
+            headers: { Authorization: "Bearer $" + "{API_TOKEN}" },
+            url: "https://api.example.test/mcp",
+          },
+          context7: {
+            args: ["-y", "@upstash/context7-mcp"],
+            command: "npx",
+            env: { CONTEXT7_TOKEN: "$" + "{CONTEXT7_TOKEN}", MODE: "readonly" },
+          },
+          docs: {
+            headers: { Authorization: "$" + "{DOCS_TOKEN}", Static: "yes" },
+            url: "https://example.test/mcp",
+          },
+        },
+      }),
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    await mkdir(join(rootPath, ".codex"), { recursive: true });
+    await writeFile(join(rootPath, ".codex/config.toml"), 'model = "gpt-5"\n');
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(await readFile(join(rootPath, ".codex/config.toml"), "utf8")).toBe(
+      [
+        'model = "gpt-5"',
+        "",
+        "# packport-managed-codex-mcp:start",
+        '[mcp_servers."api"]',
+        'url = "https://api.example.test/mcp"',
+        'bearer_token_env_var = "API_TOKEN"',
+        "enabled = true",
+        "",
+        '[mcp_servers."context7"]',
+        'command = "npx"',
+        'args = ["-y", "@upstash/context7-mcp"]',
+        'env_vars = ["CONTEXT7_TOKEN"]',
+        'env = { "MODE" = "readonly" }',
+        "enabled = true",
+        "",
+        '[mcp_servers."docs"]',
+        'url = "https://example.test/mcp"',
+        'http_headers = { "Static" = "yes" }',
+        'env_http_headers = { "Authorization" = "DOCS_TOKEN" }',
+        "enabled = true",
+        "# packport-managed-codex-mcp:end",
+        "",
+      ].join("\n"),
+    );
+    expect(
+      lockResult.lock?.outputs.map((output) => ({
+        kind: output.kind,
+        ...(output.packageName ? { packageName: output.packageName } : {}),
+        path: output.path,
+        target: output.target,
+      })),
+    ).toContainEqual({
+      kind: "config",
+      path: ".codex/config.toml",
+      target: "codex",
+    });
+  });
+
+  test("removes stale managed Codex MCP config when pack MCP servers disappear", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/.mcp.json": JSON.stringify({
+        mcpServers: {
+          api: {
+            headers: { Authorization: "Bearer $" + "{API_TOKEN}" },
+            url: "https://api.example.test/mcp",
+          },
+        },
+      }),
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    await mkdir(join(rootPath, ".codex"), { recursive: true });
+    await writeFile(join(rootPath, ".codex/config.toml"), 'model = "gpt-5"\n');
+
+    const firstResult = await generateCodexOutput(rootPath, outputPath);
+    await rm(join(rootPath, "packs/essentials/.mcp.json"));
+    const secondResult = await generateCodexOutput(rootPath, outputPath);
+    const lockResult = await readPackLock(rootPath);
+
+    expect(firstResult.diagnostics).toEqual([]);
+    expect(secondResult.diagnostics).toEqual([]);
+    expect(await readFile(join(rootPath, ".codex/config.toml"), "utf8")).toBe('model = "gpt-5"\n');
+    expect(lockResult.lock?.outputs.map((output) => output.kind)).not.toContain("config");
+  });
+
+  test("reports Codex MCP config conflicts without writing output", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/.mcp.json": JSON.stringify({
+        mcpServers: {
+          api: {
+            headers: { Authorization: "Bearer $" + "{API_TOKEN}" },
+            url: "https://api.example.test/mcp",
+          },
+        },
+      }),
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    await mkdir(join(rootPath, ".codex"), { recursive: true });
+    await writeFile(
+      join(rootPath, ".codex/config.toml"),
+      "[mcp_servers.'api']\nurl = \"https://existing.example.test/mcp\"\n",
+    );
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "codex-mcp-config-conflict",
+      message: "Existing Codex config already declares mcp_servers.api.",
+      path: join(rootPath, ".codex/config.toml"),
+      severity: "error",
+    });
+    await expect(lstat(join(outputPath, "essentials/.codex-plugin/plugin.json"))).rejects.toThrow();
+  });
+
+  test("warns for Codex MCP placeholders that cannot be projected natively", async () => {
+    const rootPath = await createTempRepository("packport-codex-source-");
+    const outputPath = join(rootPath, ".packs/codex");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/.mcp.json": JSON.stringify({
+        mcpServers: {
+          docs: {
+            headers: { Authorization: "Basic $" + "{DOCS_TOKEN}" },
+            url: "$" + "{DOCS_HOST}/mcp",
+          },
+          local: {
+            command: "node",
+            env: { BASE_URL: "$" + "{DOCS_HOST}/mcp" },
+          },
+        },
+      }),
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+
+    const result = await generateCodexOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toContainEqual({
+      code: "unsupported-codex-mcp-placeholder",
+      message:
+        "Codex MCP server docs url contains an environment placeholder that Codex may treat literally.",
+      path: join(rootPath, ".codex/config.toml"),
+      severity: "warning",
+    });
+    expect(result.diagnostics).toContainEqual({
+      code: "unsupported-codex-mcp-placeholder",
+      message:
+        "Codex MCP server docs headers.Authorization contains an environment placeholder that Codex may treat literally.",
+      path: join(rootPath, ".codex/config.toml"),
+      severity: "warning",
+    });
+    expect(result.diagnostics).toContainEqual({
+      code: "unsupported-codex-mcp-placeholder",
+      message:
+        "Codex MCP server local env.BASE_URL contains an environment placeholder that Codex may treat literally.",
+      path: join(rootPath, ".codex/config.toml"),
+      severity: "warning",
+    });
+  });
+
   test("skips built-in control packs unless explicitly included", async () => {
     const rootPath = await createTempRepository("packport-codex-source-");
     const outputPath = join(rootPath, ".packs/codex");

@@ -13,16 +13,14 @@ Use this skill to run packport generation primitives in the right order without 
 
 1. Identify the pack repository root and target set: Claude Code, OpenCode, Codex, or all.
 2. Run `packport check <root>` before generation. Stop on errors.
-3. For Claude Code user packs, run `packport claude generate <root>`.
-4. For OpenCode user packs, run `packport opencode generate <root> <root>/.packs/opencode`.
-5. For Codex user packs, run `packport codex generate <root>`.
-6. In the packport repository only, include control packs for dogfood output with `--include-control-packs` on OpenCode and Codex generation.
-7. In the packport repository only, refresh Claude control plugins with `packport control-plugin claude .packs/claude/packport`, `packport control-plugin claude configport .packs/claude/configport`, and `packport control-plugin claude-marketplace .`.
-8. If working from the packport source tree before a binary is installed, use `bun src/cli.ts` in place of `packport`.
-9. Run `packport check <root>` again and report changed generated paths and diagnostics.
+3. Run `packport generate <root>` for all targets, or add repeatable `--target claude`, `--target opencode`, and `--target codex` flags for a subset.
+4. Use `--no-configport` only when the user explicitly wants to skip configured instruction materialization.
+5. In the packport repository only, refresh Claude control plugins before aggregate generation with `packport control-plugin claude .packs/claude/packport`, `packport control-plugin claude configport .packs/claude/configport`, and `packport control-plugin claude-marketplace .`.
+6. To wire generated output into tool-global configuration, run `packport install <root> --dry-run`, review the planned writes, then run `packport install <root>`.
+7. If working from the packport source tree before a binary is installed, use `bun src/cli.ts` in place of `packport`.
+8. Run `packport check <root>` again and report changed generated paths and diagnostics.
 
 ## Boundaries
 
-- Do not use `--include-control-packs` in ordinary pack repositories unless the user explicitly asks for tool-owned control output.
 - Do not edit generated files to fix generation results; edit source packs or configport state and regenerate.
 - Do not materialize profile-local answers into committed `.packs/` output.

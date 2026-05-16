@@ -145,6 +145,43 @@ description: Core workflows.
     });
   });
 
+  test("does not report Codex config drift for unmanaged config edits", async () => {
+    const rootPath = await createValidPackRepository();
+    await writeFile(
+      join(rootPath, "packs/essentials/.mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          api: {
+            headers: { Authorization: "Bearer " + "$" + "{API_TOKEN}" },
+            url: "https://api.example.test/mcp",
+          },
+        },
+      }),
+    );
+    await mkdir(join(rootPath, ".codex"), { recursive: true });
+    await writeFile(join(rootPath, ".codex/config.toml"), 'model = "gpt-5"\n');
+    await generateCodexOutput(rootPath);
+    await writeFile(
+      join(rootPath, ".codex/config.toml"),
+      [
+        'model = "gpt-5.5"',
+        "",
+        "# packport-managed-codex-mcp:start",
+        '[mcp_servers."api"]',
+        'url = "https://api.example.test/mcp"',
+        'bearer_token_env_var = "API_TOKEN"',
+        "enabled = true",
+        "# packport-managed-codex-mcp:end",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
   test("returns ok for a repo with only Claude control plugin output locked", async () => {
     const rootPath = await createControlPackRepository();
 
@@ -240,12 +277,9 @@ description: Core workflows.
 
 describe("runCli", () => {
   const usage =
-    "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
-  const claudeUsage = "Usage: packport claude generate <pack-root> [output-root]";
-  const opencodeUsage =
-    "Usage: packport opencode generate <pack-root> <output-root> [--include-control-packs]";
-  const codexUsage =
-    "Usage: packport codex generate <pack-root> [output-root] [--include-control-packs]";
+    "Usage: packport generate [root] [--target <claude|opencode|codex>]... [--no-configport]\n       Usage: packport install [root] [--target <claude|opencode|codex>]... [--dry-run] [--no-configport] [--codex-home <path>] [--agents-root <path>] [--claude-home <path>] [--opencode-config-root <path>]\n       packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
+  const generateUsage =
+    "Usage: packport generate [root] [--target <claude|opencode|codex>]... [--no-configport]";
   const configportUsage =
     "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport check <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
 
@@ -572,14 +606,18 @@ describe("runCli", () => {
     });
   });
 
-  test("generates Claude output and marketplace metadata", async () => {
+  test("generates all target output and marketplace metadata", async () => {
     const rootPath = await createValidPackRepository();
 
-    const result = await runCli(["claude", "generate", rootPath]);
+    const result = await runCli(["generate", rootPath]);
 
     expect(result).toEqual({
       exitCode: 0,
-      stdout: `Generated Claude output at ${join(rootPath, ".packs/claude")} with 1 plugin(s), 1 command(s), 0 agent(s), 0 skill(s), and 1 marketplace entry(s).`,
+      stdout: [
+        `Generated Claude output at ${join(rootPath, ".packs/claude")} with 1 plugin(s), 1 command(s), 0 agent(s), 0 skill(s), and 1 marketplace entry(s).`,
+        `Generated OpenCode output at ${join(rootPath, ".packs/opencode")} with 1 package(s), 1 command(s), 0 agent(s), and 0 skill(s).`,
+        `Generated Codex output at ${join(rootPath, ".packs/codex")} with 1 plugin(s), 1 skill(s), 0 agent(s), and 1 marketplace entry(s).`,
+      ].join("\n"),
     });
     expect(
       await readFile(join(rootPath, ".packs/claude/essentials/commands/commit.md"), "utf8"),
@@ -594,109 +632,12 @@ describe("runCli", () => {
         },
       ],
     });
-  });
-
-  test("generates Claude output with an explicit repo-local output root", async () => {
-    const rootPath = await createValidPackRepository();
-    const outputPath = join(rootPath, ".packs/claude");
-
-    const result = await runCli(["claude", "generate", rootPath, outputPath]);
-
-    expect(result).toEqual({
-      exitCode: 0,
-      stdout: `Generated Claude output at ${outputPath} with 1 plugin(s), 1 command(s), 0 agent(s), 0 skill(s), and 1 marketplace entry(s).`,
-    });
-    expect(await readFile(join(outputPath, "essentials/commands/commit.md"), "utf8")).toBe(
-      "# Commit\n",
-    );
-  });
-
-  test("reports Claude generation usage errors", async () => {
-    const missingRoot = await runCli(["claude", "generate"]);
-    const wrongSubcommand = await runCli(["claude", "scan", "root"]);
-    const tooManyArgs = await runCli(["claude", "generate", "root", "output", "extra"]);
-
-    expect(missingRoot).toEqual({ exitCode: 1, stderr: claudeUsage });
-    expect(wrongSubcommand).toEqual({ exitCode: 1, stderr: claudeUsage });
-    expect(tooManyArgs).toEqual({ exitCode: 1, stderr: claudeUsage });
-  });
-
-  test("returns Claude generation diagnostics for invalid output roots", async () => {
-    const rootPath = await createValidPackRepository();
-    const outputPath = join(await mkdtemp(join(tmpdir(), "packport-cli-claude-output-")), "claude");
-
-    const result = await runCli(["claude", "generate", rootPath, outputPath]);
-
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain(
-      `Generated Claude output at ${outputPath} with 0 plugin(s), 0 command(s), 0 agent(s), 0 skill(s), and 0 marketplace entry(s).`,
-    );
-    expect(result.stdout).toContain("ERROR invalid-claude-output-root");
-    await expect(lstat(join(outputPath, "essentials/commands/commit.md"))).rejects.toThrow();
-  });
-
-  test("generates OpenCode output", async () => {
-    const rootPath = await createValidPackRepository();
-    const outputPath = join(rootPath, ".packs/opencode");
-
-    const result = await runCli(["opencode", "generate", rootPath, outputPath]);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      `Generated OpenCode output at ${outputPath} with 1 package(s), 1 command(s), 0 agent(s), and 0 skill(s).`,
-    );
-    expect(
-      await readFile(join(outputPath, "essentials/.opencode/commands/commit.md"), "utf8"),
-    ).toBe(["---", 'description: "commit command"', "---", "", "# Commit", ""].join("\n"));
-  });
-
-  test("accepts explicit control-pack inclusion for OpenCode dogfood generation", async () => {
-    const rootPath = await createValidPackRepositoryWithControlPack();
-    const outputPath = join(rootPath, ".packs/opencode");
-
-    const result = await runCli([
-      "opencode",
-      "generate",
-      rootPath,
-      outputPath,
-      "--include-control-packs",
-    ]);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      `Generated OpenCode output at ${outputPath} with 2 package(s), 1 command(s), 0 agent(s), and 1 skill(s).`,
-    );
     expect(
       await readFile(
-        join(outputPath, "packport-control/.opencode/skills/check-pack/SKILL.md"),
+        join(rootPath, ".packs/opencode/essentials/.opencode/commands/commit.md"),
         "utf8",
       ),
-    ).toContain("name: check-pack");
-  });
-
-  test("reports OpenCode generation usage errors", async () => {
-    const result = await runCli(["opencode", "generate", "only-root"]);
-    const unknownOption = await runCli([
-      "opencode",
-      "generate",
-      "root",
-      "output",
-      "--include-control-packs=false",
-    ]);
-
-    expect(result).toEqual({ exitCode: 1, stderr: opencodeUsage });
-    expect(unknownOption).toEqual({ exitCode: 1, stderr: opencodeUsage });
-  });
-
-  test("generates Codex output and marketplace metadata", async () => {
-    const rootPath = await createValidPackRepository();
-
-    const result = await runCli(["codex", "generate", rootPath]);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      `Generated Codex output at ${join(rootPath, ".packs/codex")} with 1 plugin(s), 1 skill(s), 0 agent(s), and 1 marketplace entry(s).`,
-    );
+    ).toBe(["---", 'description: "commit command"', "---", "", "# Commit", ""].join("\n"));
     expect(
       JSON.parse(
         await readFile(join(rootPath, ".packs/codex/essentials/.codex-plugin/plugin.json"), "utf8"),
@@ -705,9 +646,6 @@ describe("runCli", () => {
       name: "essentials",
       version: "1.0.0",
     });
-    expect(
-      await readFile(join(rootPath, ".packs/codex/essentials/skills/commit/SKILL.md"), "utf8"),
-    ).toContain("name: commit");
     expect(
       JSON.parse(await readFile(join(rootPath, ".agents/plugins/marketplace.json"), "utf8")),
     ).toMatchObject({
@@ -718,38 +656,267 @@ describe("runCli", () => {
         },
       ],
     });
+    expect(
+      new Set((await readPackLock(rootPath)).lock?.outputs.map((output) => output.target)),
+    ).toEqual(new Set(["claude", "codex", "opencode"]));
   });
 
-  test("accepts explicit control-pack inclusion for Codex dogfood generation", async () => {
+  test("generates only selected targets in stable order", async () => {
+    const rootPath = await createValidPackRepository();
+
+    const result = await runCli([
+      "generate",
+      rootPath,
+      "--target",
+      "codex",
+      "--target",
+      "claude",
+      "--target=codex",
+    ]);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: [
+        `Generated Claude output at ${join(rootPath, ".packs/claude")} with 1 plugin(s), 1 command(s), 0 agent(s), 0 skill(s), and 1 marketplace entry(s).`,
+        `Generated Codex output at ${join(rootPath, ".packs/codex")} with 1 plugin(s), 1 skill(s), 0 agent(s), and 1 marketplace entry(s).`,
+      ].join("\n"),
+    });
+    expect(
+      await readFile(join(rootPath, ".packs/claude/essentials/commands/commit.md"), "utf8"),
+    ).toBe("# Commit\n");
+    expect(
+      await readFile(join(rootPath, ".packs/codex/essentials/skills/commit/SKILL.md"), "utf8"),
+    ).toContain("name: commit");
+    await expect(
+      lstat(join(rootPath, ".packs/opencode/essentials/.opencode/commands/commit.md")),
+    ).rejects.toThrow();
+  });
+
+  test("generates control packs as ordinary packs by default", async () => {
     const rootPath = await createValidPackRepositoryWithControlPack();
 
-    const result = await runCli(["codex", "generate", rootPath, "--include-control-packs"]);
+    const result = await runCli(["generate", rootPath, "--target", "opencode"]);
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      `Generated Codex output at ${join(rootPath, ".packs/codex")} with 2 plugin(s), 2 skill(s), 0 agent(s), and 2 marketplace entry(s).`,
-    );
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `Generated OpenCode output at ${join(rootPath, ".packs/opencode")} with 2 package(s), 1 command(s), 0 agent(s), and 1 skill(s).`,
+    });
     expect(
       await readFile(
-        join(rootPath, ".packs/codex/packport-control/skills/check-pack/SKILL.md"),
+        join(rootPath, ".packs/opencode/packport-control/.opencode/skills/check-pack/SKILL.md"),
         "utf8",
       ),
     ).toContain("name: check-pack");
-    expect(
-      JSON.parse(
-        await readFile(join(rootPath, ".agents/plugins/marketplace.json"), "utf8"),
-      ).plugins.map((plugin: { name: string }) => plugin.name),
-    ).toEqual(["essentials", "packport-control"]);
   });
 
-  test("reports Codex generation usage errors", async () => {
-    const result = await runCli(["codex", "generate"]);
-    const tooManyPaths = await runCli(["codex", "generate", "root", "output", "extra"]);
-    const unknownOption = await runCli(["codex", "generate", "root", "--wat"]);
+  test("check validates aggregate generation with control packs", async () => {
+    const rootPath = await createValidPackRepositoryWithControlPack();
 
-    expect(result).toEqual({ exitCode: 1, stderr: codexUsage });
-    expect(tooManyPaths).toEqual({ exitCode: 1, stderr: codexUsage });
-    expect(unknownOption).toEqual({ exitCode: 1, stderr: codexUsage });
+    const generateResult = await runCli(["generate", rootPath]);
+    const checkResult = await checkPackRepository(rootPath);
+
+    expect(generateResult.exitCode).toBe(0);
+    expect(checkResult.ok).toBe(true);
+    expect(checkResult.diagnostics).toEqual([]);
+  });
+
+  test("reports aggregate generation usage errors", async () => {
+    const missingTarget = await runCli(["generate", "root", "--target"]);
+    const invalidTarget = await runCli(["generate", "root", "--target", "bad-target"]);
+    const unknownOption = await runCli(["generate", "root", "--include-control-packs"]);
+    const tooManyPaths = await runCli(["generate", "root", "output"]);
+
+    expect(missingTarget).toEqual({
+      exitCode: 1,
+      stderr: `--target requires claude, opencode, or codex.\n${generateUsage}`,
+    });
+    expect(invalidTarget).toEqual({
+      exitCode: 1,
+      stderr: `--target requires claude, opencode, or codex.\n${generateUsage}`,
+    });
+    expect(unknownOption).toEqual({
+      exitCode: 1,
+      stderr: `Unknown generate option '--include-control-packs'.\n${generateUsage}`,
+    });
+    expect(tooManyPaths).toEqual({
+      exitCode: 1,
+      stderr: `generate accepts at most one root path.\n${generateUsage}`,
+    });
+  });
+
+  test("removes old harness-first generation commands from the CLI", async () => {
+    const rootPath = await createValidPackRepository();
+
+    const claudeResult = await runCli(["claude", "generate", rootPath]);
+    const opencodeResult = await runCli([
+      "opencode",
+      "generate",
+      rootPath,
+      join(rootPath, ".packs/opencode"),
+    ]);
+    const codexResult = await runCli(["codex", "generate", rootPath]);
+
+    expect(claudeResult).toEqual({
+      exitCode: 1,
+      stderr: `Unknown command 'claude'.\n${usage}\n${configportUsage}`,
+    });
+    expect(opencodeResult).toEqual({
+      exitCode: 1,
+      stderr: `Unknown command 'opencode'.\n${usage}\n${configportUsage}`,
+    });
+    expect(codexResult).toEqual({
+      exitCode: 1,
+      stderr: `Unknown command 'codex'.\n${usage}\n${configportUsage}`,
+    });
+  });
+
+  test("materializes matching configport instructions during generation", async () => {
+    const rootPath = await createValidPackRepository();
+    await mkdir(join(rootPath, "packs/essentials/instructions/repo-workflow"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      "Project guidance.\n",
+    );
+    await runCli([
+      "configport",
+      "instructions",
+      "put",
+      join(rootPath, ".configport"),
+      "personal",
+      "codex",
+      "essentials",
+      "project",
+      "--instruction",
+      "repo-workflow",
+    ]);
+
+    const result = await runCli(["generate", rootPath, "--target", "codex"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      `Generated Codex output at ${join(rootPath, ".packs/codex")} with 1 plugin(s), 1 skill(s), 0 agent(s), and 1 marketplace entry(s).`,
+    );
+    expect(result.stdout).toContain(
+      `Materialized configport instructions to ${rootPath} with 1 file(s), 1 instruction(s), and 1 selection(s).`,
+    );
+    expect(result.stdout).toContain("WARNING unsupported-codex-asset");
+    expect(await readFile(join(rootPath, "AGENTS.md"), "utf8")).toContain("Project guidance.");
+  });
+
+  test("check reports configport instruction materialization drift", async () => {
+    const rootPath = await createValidPackRepository();
+    await mkdir(join(rootPath, "packs/essentials/instructions/repo-workflow"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      "Project guidance.\n",
+    );
+    await runCli([
+      "configport",
+      "instructions",
+      "put",
+      join(rootPath, ".configport"),
+      "personal",
+      "codex",
+      "essentials",
+      "project",
+      "--instruction",
+      "repo-workflow",
+    ]);
+    await runCli(["generate", rootPath, "--target", "codex"]);
+    await writeFile(join(rootPath, "AGENTS.md"), "stale instructions\n");
+
+    const result = await checkPackRepository(rootPath);
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual({
+      code: "configport-instruction-drift",
+      message: "Configport instruction output differs from current configport selections.",
+      path: join(rootPath, "AGENTS.md"),
+      severity: "error",
+    });
+  });
+
+  test("skips configport instruction materialization when disabled", async () => {
+    const rootPath = await createValidPackRepository();
+    await mkdir(join(rootPath, "packs/essentials/instructions/repo-workflow"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(rootPath, "packs/essentials/instructions/repo-workflow/INSTRUCTION.md"),
+      "Project guidance.\n",
+    );
+    await runCli([
+      "configport",
+      "instructions",
+      "put",
+      join(rootPath, ".configport"),
+      "personal",
+      "codex",
+      "essentials",
+      "project",
+      "--instruction",
+      "repo-workflow",
+    ]);
+
+    const result = await runCli(["generate", rootPath, "--target", "codex", "--no-configport"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      `Generated Codex output at ${join(rootPath, ".packs/codex")} with 1 plugin(s), 1 skill(s), 0 agent(s), and 1 marketplace entry(s).`,
+    );
+    expect(result.stdout).not.toContain("Materialized configport instructions");
+    expect(result.stdout).toContain("WARNING unsupported-codex-asset");
+    await expect(lstat(join(rootPath, "AGENTS.md"))).rejects.toThrow();
+
+    const checkResult = await checkPackRepository(rootPath);
+
+    expect(checkResult.ok).toBe(true);
+    expect(checkResult.lock?.decisions).toContain("generate:no-configport:codex");
+
+    const claudeResult = await runCli(["generate", rootPath, "--target", "claude"]);
+    const checkAfterClaudeResult = await checkPackRepository(rootPath);
+
+    expect(claudeResult.exitCode).toBe(0);
+    expect(checkAfterClaudeResult.ok).toBe(true);
+    expect(checkAfterClaudeResult.lock?.decisions).toContain("generate:no-configport:codex");
+    await expect(lstat(join(rootPath, "AGENTS.md"))).rejects.toThrow();
+
+    const codexResult = await runCli(["generate", rootPath, "--target", "codex"]);
+    const checkAfterCodexResult = await checkPackRepository(rootPath);
+
+    expect(codexResult.exitCode).toBe(0);
+    expect(codexResult.stdout).toContain("Materialized configport instructions");
+    expect(checkAfterCodexResult.ok).toBe(true);
+    expect(checkAfterCodexResult.lock?.decisions).not.toContain("generate:no-configport:codex");
+  });
+
+  test("returns generation diagnostics for invalid pack source", async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), "packport-cli-generate-invalid-"));
+    await mkdir(join(rootPath, "packs/essentials/commands/commit"), { recursive: true });
+    await writeFile(
+      join(rootPath, "packs/essentials/PACK.md"),
+      `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+    );
+
+    const result = await runCli(["generate", rootPath, "--target", "codex"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(
+      `Generated Codex output at ${join(rootPath, ".packs/codex")} with 0 plugin(s), 0 skill(s), 0 agent(s), and 0 marketplace entry(s).`,
+    );
+    expect(result.stdout).toContain("ERROR missing-payload");
+    await expect(
+      lstat(join(rootPath, ".packs/codex/essentials/skills/commit/SKILL.md")),
+    ).rejects.toThrow();
   });
 
   test("stores and applies configport overlays", async () => {
@@ -1084,7 +1251,7 @@ description: Core workflows.
 
     expect(result).toEqual({
       exitCode: 1,
-      stderr: `Unknown command 'wat'.\n${usage}\n${claudeUsage}\n${opencodeUsage}\n${codexUsage}\n${configportUsage}`,
+      stderr: `Unknown command 'wat'.\n${usage}\n${configportUsage}`,
     });
   });
 });
@@ -1184,7 +1351,7 @@ description: Config control workflows.
 async function refreshLockFromCurrentGeneratedOutputs(
   rootPath: string,
   additionalOutputs: readonly {
-    readonly kind: "marketplace" | "package";
+    readonly kind: "config" | "marketplace" | "package";
     readonly packageName?: string;
     readonly path: string;
     readonly target: string;

@@ -55,6 +55,7 @@ export {
   renderPortableRefsForTarget,
   validateKnownPortableRefs,
 } from "./core/harness-refs";
+export { installPackRepository, INSTALL_TARGETS } from "./core/install";
 export {
   createPackLock,
   detectLockDrift,
@@ -85,6 +86,12 @@ export type {
 } from "./core/claude-migration";
 export type { CheckResult } from "./core/check";
 export type { GenerateCodexOptions, GenerateCodexResult } from "./core/codex";
+export type {
+  InstallPackRepositoryOptions,
+  InstallPackRepositoryResult,
+  InstallPlanWrite,
+  InstallTarget,
+} from "./core/install";
 export type {
   ApplyConfigportOverlayOptions,
   ApplyConfigportOverlayResult,

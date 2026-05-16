@@ -8,12 +8,15 @@ import { parse, stringify } from "yaml";
 import type { Diagnostic, PackRepositoryIndex } from "./types";
 
 export const PACK_LOCK_FILE = "pack.lock.yaml";
+const CODEX_MCP_BLOCK_START = "# packport-managed-codex-mcp:start";
+const CODEX_MCP_BLOCK_END = "# packport-managed-codex-mcp:end";
 
 export type LockedAsset = {
   readonly contract?: LockedSource;
   readonly id: string;
   readonly kind: string;
   readonly payloads: readonly LockedSource[];
+  readonly support?: readonly LockedSource[];
 };
 
 export type LockedPack = {
@@ -30,7 +33,7 @@ export type LockedSource = {
 };
 
 export type GeneratedOutput = {
-  readonly kind: "marketplace" | "package";
+  readonly kind: "config" | "marketplace" | "package";
   readonly packageName?: string;
   readonly path: string;
   readonly target: string;
@@ -42,7 +45,7 @@ export type PreservedOutput = GeneratedOutput & {
 
 export type LockedOutput = {
   readonly hash: string;
-  readonly kind: "marketplace" | "package";
+  readonly kind: "config" | "marketplace" | "package";
   readonly packageName?: string;
   readonly path: string;
   readonly target: string;
@@ -110,6 +113,16 @@ export async function createPackLock(
             path: relativePath(rootPath, payloadPath),
           })),
         ),
+        ...(asset.supportPaths.length > 0
+          ? {
+              support: await Promise.all(
+                asset.supportPaths.map(async (supportPath) => ({
+                  hash: await hashSourceFile(rootPath, supportPath),
+                  path: relativePath(rootPath, supportPath),
+                })),
+              ),
+            }
+          : {}),
       })),
     ),
   );
@@ -223,7 +236,7 @@ export async function refreshPackLockGeneratedOutput(
     throw new Error(`Generated output path must stay inside the repository: ${output.path}`);
   }
 
-  const state = await tryHashLockedPath(rootPath, path, "output");
+  const state = await tryHashLockedOutput(rootPath, { ...output, path });
   const hash = state.hash;
 
   if (!hash) {
@@ -294,7 +307,7 @@ export async function detectLockDrift(
 
   for (const output of lock.outputs) {
     const absolutePath = join(rootPath, output.path);
-    const outputState = await tryHashLockedPath(rootPath, output.path, "output");
+    const outputState = await tryHashLockedOutput(rootPath, output);
 
     if (outputState.diagnostic) {
       diagnostics.push(outputState.diagnostic);
@@ -371,9 +384,12 @@ export function serializePackLock(lock: PackLock): string {
 
 /** Hashes a file with SHA-256 for lockfile drift checks. */
 async function hashFile(path: string): Promise<string> {
-  return createHash("sha256")
-    .update(await readFile(path))
-    .digest("hex");
+  return hashContent(await readFile(path));
+}
+
+/** Hashes bytes or text with SHA-256 for lockfile drift checks. */
+function hashContent(content: string | Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
 }
 
 /** Hashes a source path only after enforcing the same safety checks used for drift. */
@@ -403,11 +419,31 @@ async function tryHashLockedSource(
   return await tryHashLockedPath(rootPath, sourcePath, "source");
 }
 
+/** Attempts to hash a locked generated output, using managed-block ownership for config files. */
+async function tryHashLockedOutput(
+  rootPath: string,
+  output: Pick<LockedOutput, "kind" | "path" | "target">,
+): Promise<LockedSourceState> {
+  if (output.kind === "config" && output.target === "codex") {
+    return await tryHashLockedPath(
+      rootPath,
+      output.path,
+      "output",
+      hashCodexMcpManagedBlock,
+      "Locked generated config output is missing the packport-managed Codex MCP block.",
+    );
+  }
+
+  return await tryHashLockedPath(rootPath, output.path, "output");
+}
+
 /** Attempts to hash one locked path, converting unsafe or unreadable paths to diagnostics. */
 async function tryHashLockedPath(
   rootPath: string,
   lockPath: string,
   kind: "output" | "source",
+  hashPath: (path: string) => Promise<string | undefined> = hashFile,
+  missingHashMessage?: string,
 ): Promise<LockedSourceState> {
   const path = join(rootPath, lockPath);
   const label = kind === "source" ? "source" : "generated output";
@@ -438,7 +474,21 @@ async function tryHashLockedPath(
       };
     }
 
-    return { hash: await hashFile(path) };
+    const hash = await hashPath(path);
+
+    if (hash === undefined) {
+      return {
+        diagnostic: {
+          code,
+          message:
+            missingHashMessage ?? `Locked ${label} path must contain hashable generated content.`,
+          path,
+          severity: "error",
+        },
+      };
+    }
+
+    return { hash };
   } catch (error) {
     if (error instanceof SymlinkSourceError) {
       return {
@@ -484,7 +534,10 @@ async function lockGeneratedOutputs(
     }
 
     const hash = "hash" in output ? output.hash : undefined;
-    const state = hash === undefined ? await tryHashLockedPath(rootPath, path, "output") : { hash };
+    const state =
+      hash === undefined
+        ? await tryHashLockedOutput(rootPath, { kind: output.kind, path, target: output.target })
+        : { hash };
 
     if (!state.hash) {
       throw new Error(
@@ -502,6 +555,18 @@ async function lockGeneratedOutputs(
   }
 
   return lockedOutputs.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function hashCodexMcpManagedBlock(path: string): Promise<string | undefined> {
+  const content = await readFile(path, "utf8");
+  const start = content.indexOf(CODEX_MCP_BLOCK_START);
+  const end = content.indexOf(CODEX_MCP_BLOCK_END);
+
+  if (start === -1 || end === -1 || end < start) {
+    return undefined;
+  }
+
+  return hashContent(content.slice(start, end + CODEX_MCP_BLOCK_END.length));
 }
 
 /** Lstats every component of a locked source path so symlink traversal cannot escape root. */
@@ -546,6 +611,7 @@ function lockedSources(lock: PackLock): LockedSource[] {
     ...lock.assets.flatMap((asset) => [
       ...(asset.contract ? [asset.contract] : []),
       ...asset.payloads,
+      ...(asset.support ?? []),
     ]),
   ];
 }
@@ -563,6 +629,10 @@ function indexSources(rootPath: string, index: PackRepositoryIndex): LockedSourc
       ...asset.payloadPaths.map((payloadPath) => ({
         hash: "",
         path: relativePath(rootPath, payloadPath),
+      })),
+      ...asset.supportPaths.map((supportPath) => ({
+        hash: "",
+        path: relativePath(rootPath, supportPath),
       })),
     ]),
   ]);
@@ -651,7 +721,7 @@ function validateLockedOutput(
   if (
     typeof value.hash !== "string" ||
     !isValidLockPath(value.path) ||
-    (value.kind !== "marketplace" && value.kind !== "package") ||
+    (value.kind !== "config" && value.kind !== "marketplace" && value.kind !== "package") ||
     typeof value.target !== "string" ||
     (value.packageName !== undefined && typeof value.packageName !== "string")
   ) {
@@ -723,12 +793,22 @@ function validateLockedAsset(
 
   const payloads = value.payloads;
   const contract = value.contract;
+  const supportValue = value.support;
 
   if (typeof value.id !== "string" || typeof value.kind !== "string" || !Array.isArray(payloads)) {
     diagnostics.push(invalidLockfile(lockPath, "Locked asset entry is invalid."));
     return [];
   }
 
+  if (supportValue !== undefined && !Array.isArray(supportValue)) {
+    diagnostics.push(invalidLockfile(lockPath, "Locked asset support entry is invalid."));
+    return [];
+  }
+
+  const support =
+    supportValue === undefined
+      ? undefined
+      : supportValue.flatMap((source) => validateLockedSource(source, lockPath, diagnostics));
   const lockedPayloads = payloads.flatMap((payload) =>
     validateLockedSource(payload, lockPath, diagnostics),
   );
@@ -741,6 +821,7 @@ function validateLockedAsset(
       id: value.id,
       kind: value.kind,
       payloads: lockedPayloads,
+      ...(support && support.length > 0 ? { support } : {}),
     },
   ];
 }

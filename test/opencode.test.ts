@@ -577,6 +577,101 @@ description: Core workflows.
     });
   });
 
+  test("writes pack MCP servers into OpenCode config", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/.mcp.json": JSON.stringify({
+        mcpServers: {
+          context7: {
+            args: ["-y", "@upstash/context7-mcp"],
+            command: "npx",
+            env: { CONTEXT7_TOKEN: "$" + "{CONTEXT7_TOKEN}" },
+          },
+          docs: {
+            headers: { Authorization: "Bearer $" + "{DOCS_TOKEN}" },
+            url: "$" + "{DOCS_HOST}/mcp",
+          },
+        },
+      }),
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+    await mkdir(join(outputPath, "essentials"), { recursive: true });
+    await writeFile(
+      join(outputPath, "essentials/opencode.json"),
+      `${JSON.stringify({ mcp: { existing: { enabled: false } }, theme: "system" })}\n`,
+    );
+
+    const result = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      JSON.parse(await readFile(join(outputPath, "essentials/opencode.json"), "utf8")),
+    ).toEqual({
+      $schema: "https://opencode.ai/config.json",
+      mcp: {
+        context7: {
+          command: ["npx", "-y", "@upstash/context7-mcp"],
+          environment: { CONTEXT7_TOKEN: "{env:CONTEXT7_TOKEN}" },
+          type: "local",
+        },
+        docs: {
+          headers: { Authorization: "Bearer {env:DOCS_TOKEN}" },
+          type: "remote",
+          url: "{env:DOCS_HOST}/mcp",
+        },
+        existing: { enabled: false },
+      },
+      theme: "system",
+    });
+    expect(
+      JSON.parse(await readFile(join(outputPath, "essentials/.packport/mcp.json"), "utf8")),
+    ).toEqual({
+      generatedMcpServers: ["context7", "docs"],
+    });
+  });
+
+  test("removes stale OpenCode MCP config when pack MCP servers disappear", async () => {
+    const rootPath = await createTempRepository("packport-opencode-source-");
+    const outputPath = join(rootPath, ".packs/opencode");
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/.mcp.json": JSON.stringify({
+        mcpServers: {
+          docs: {
+            headers: { Authorization: "Bearer $" + "{DOCS_TOKEN}" },
+            url: "https://example.test/mcp",
+          },
+        },
+      }),
+      "packs/essentials/commands/plan/COMMAND.md": "# Plan\n",
+    });
+
+    const firstResult = await generateOpenCodeOutput(rootPath, outputPath);
+    await rm(join(rootPath, "packs/essentials/.mcp.json"));
+    const secondResult = await generateOpenCodeOutput(rootPath, outputPath);
+
+    expect(firstResult.diagnostics).toEqual([]);
+    expect(secondResult.diagnostics).toEqual([]);
+    expect(
+      JSON.parse(await readFile(join(outputPath, "essentials/opencode.json"), "utf8")),
+    ).toEqual({
+      $schema: "https://opencode.ai/config.json",
+    });
+    await expect(lstat(join(outputPath, "essentials/.packport/mcp.json"))).rejects.toThrow();
+  });
+
   test("writes OpenCode SKILL.md from a nonstandard packport skill payload", async () => {
     const rootPath = await createTempRepository("packport-opencode-source-");
     const outputPath = join(rootPath, ".packs/opencode");

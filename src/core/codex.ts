@@ -11,11 +11,21 @@ import {
   type GeneratedOutput,
   type LockedOutput,
 } from "./lockfile";
+import {
+  mergeManagedBlock,
+  readPortableMcpServers,
+  removeManagedBlock,
+  renderCodexMcpConfig,
+  type PortableMcpServer,
+} from "./mcp";
 import { isAssetPayloadPath, renderAssetPayloadRefs } from "./payload-refs";
 import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 
 export const CODEX_DEFAULT_OUTPUT_DIRECTORY = join(".packs", "codex");
 export const CODEX_MARKETPLACE_FILE = join(".agents", "plugins", "marketplace.json");
+const CODEX_CONFIG_FILE = join(".codex", "config.toml");
+const CODEX_MCP_BLOCK_START = "# packport-managed-codex-mcp:start";
+const CODEX_MCP_BLOCK_END = "# packport-managed-codex-mcp:end";
 const PACKPORT_TOOL_VERSION = "0.0.0";
 
 export type GenerateCodexResult = {
@@ -83,8 +93,18 @@ type ReadMarketplaceResult =
   | { readonly diagnostic: Diagnostic; readonly status: "error" };
 
 type WriteOperation =
-  | { readonly content: string | Uint8Array; readonly kind: "write"; readonly targetPath: string }
-  | { readonly kind: "copy"; readonly sourcePath: string; readonly targetPath: string };
+  | {
+      readonly content: string | Uint8Array;
+      readonly kind: "write";
+      readonly targetPath: string;
+      readonly trackOutput?: boolean;
+    }
+  | {
+      readonly kind: "copy";
+      readonly sourcePath: string;
+      readonly targetPath: string;
+      readonly trackOutput?: boolean;
+    };
 
 type CodexPluginPlan = {
   readonly agents: number;
@@ -106,6 +126,7 @@ export async function generateCodexOutput(
     ...validateCodexOutputRoot(rootPath, outputPath),
   ];
   const files: string[] = [];
+  const configPath = join(rootPath, CODEX_CONFIG_FILE);
   const marketplacePath = join(rootPath, CODEX_MARKETPLACE_FILE);
   const operations: WriteOperation[] = [];
   const generatedPaths: string[] = [];
@@ -160,6 +181,17 @@ export async function generateCodexOutput(
   }
 
   if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    await planCodexMcpConfig(
+      userGenerationPacks(discovery.index.packs, options.includeControlPacks),
+      configPath,
+      preservedOutputs.some((output) => output.target === "codex" && output.kind === "config"),
+      operations,
+      generatedPaths,
+      diagnostics,
+    );
+  }
+
+  if (!diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     for (const operation of operations) {
       const diagnostic = await validateGeneratedFilePath(operation.targetPath);
 
@@ -195,7 +227,7 @@ export async function generateCodexOutput(
       rootPath,
       discovery.index,
       PACKPORT_TOOL_VERSION,
-      files.map((file) => codexGeneratedOutput(file, outputPath, marketplacePath)),
+      files.map((file) => codexGeneratedOutput(file, rootPath, outputPath, marketplacePath)),
       "codex",
       lockDecisions,
       preservedOutputs,
@@ -229,11 +261,16 @@ function userGenerationPacks(
 /** Converts a generated Codex file path into a structured lockfile output entry. */
 function codexGeneratedOutput(
   path: string,
+  rootPath: string,
   outputPath: string,
   marketplacePath: string,
 ): GeneratedOutput {
   if (path === marketplacePath) {
     return { kind: "marketplace", path, target: "codex" };
+  }
+
+  if (path === join(rootPath, CODEX_CONFIG_FILE)) {
+    return { kind: "config", path, target: "codex" };
   }
 
   const [packageName] = relative(outputPath, path).split(sep);
@@ -244,6 +281,160 @@ function codexGeneratedOutput(
     path,
     target: "codex",
   };
+}
+
+async function planCodexMcpConfig(
+  packs: readonly PackIndex[],
+  configPath: string,
+  hadGeneratedConfigOutput: boolean,
+  operations: WriteOperation[],
+  generatedPaths: string[],
+  diagnostics: Diagnostic[],
+): Promise<void> {
+  const servers: Record<string, PortableMcpServer> = {};
+
+  for (const pack of packs) {
+    for (const supportPath of pack.supportPaths) {
+      for (const [name, server] of Object.entries(
+        await readPortableMcpServers(supportPath, diagnostics),
+      )) {
+        if (server.command || server.url) {
+          servers[name] = server;
+          continue;
+        }
+
+        diagnostics.push({
+          code: "unsupported-mcp-server",
+          message: `MCP server must declare command or url: ${name}.`,
+          path: supportPath,
+          severity: "warning",
+        });
+      }
+    }
+  }
+
+  if (Object.keys(servers).length === 0) {
+    if (hadGeneratedConfigOutput) {
+      await planCodexMcpConfigCleanup(configPath, operations, generatedPaths, diagnostics);
+    }
+
+    return;
+  }
+
+  const existing = await readExistingCodexConfig(configPath, diagnostics);
+
+  if (existing === undefined) {
+    return;
+  }
+
+  if (!validateCodexConfigManagedBlock(existing, configPath, diagnostics)) {
+    return;
+  }
+
+  const unmanagedConfig = removeManagedBlock(existing, CODEX_MCP_BLOCK_START, CODEX_MCP_BLOCK_END);
+  const conflictingServer = findExistingCodexMcpServer(
+    unmanagedConfig,
+    Object.keys(servers).sort((left, right) => left.localeCompare(right)),
+  );
+
+  if (conflictingServer !== undefined) {
+    diagnostics.push({
+      code: "codex-mcp-config-conflict",
+      message: `Existing Codex config already declares mcp_servers.${conflictingServer}.`,
+      path: configPath,
+      severity: "error",
+    });
+    return;
+  }
+
+  addWriteOperation(
+    configPath,
+    mergeManagedBlock(
+      existing,
+      CODEX_MCP_BLOCK_START,
+      CODEX_MCP_BLOCK_END,
+      renderCodexMcpConfig(servers, configPath, diagnostics),
+    ),
+    operations,
+    generatedPaths,
+    diagnostics,
+  );
+}
+
+async function planCodexMcpConfigCleanup(
+  configPath: string,
+  operations: WriteOperation[],
+  generatedPaths: string[],
+  diagnostics: Diagnostic[],
+): Promise<void> {
+  const existing = await readExistingCodexConfig(configPath, diagnostics);
+
+  if (existing === undefined) {
+    return;
+  }
+
+  if (!validateCodexConfigManagedBlock(existing, configPath, diagnostics)) {
+    return;
+  }
+
+  const cleaned = removeManagedBlock(existing, CODEX_MCP_BLOCK_START, CODEX_MCP_BLOCK_END);
+
+  if (cleaned === existing) {
+    return;
+  }
+
+  addWriteOperation(configPath, cleaned, operations, generatedPaths, diagnostics, false);
+}
+
+function validateCodexConfigManagedBlock(
+  existing: string,
+  configPath: string,
+  diagnostics: Diagnostic[],
+): boolean {
+  const hasStart = existing.includes(CODEX_MCP_BLOCK_START);
+  const hasEnd = existing.includes(CODEX_MCP_BLOCK_END);
+
+  if (hasStart === hasEnd) {
+    return true;
+  }
+
+  diagnostics.push({
+    code: "invalid-codex-mcp-managed-block",
+    message: "Existing Codex config has an incomplete packport-managed MCP block.",
+    path: configPath,
+    severity: "error",
+  });
+  return false;
+}
+
+function findExistingCodexMcpServer(
+  config: string,
+  serverNames: readonly string[],
+): string | undefined {
+  for (const serverName of serverNames) {
+    const pattern = `^\\s*\\[mcp_servers\\.${tomlTableKeyPattern(serverName)}\\]\\s*$`;
+
+    if (new RegExp(pattern, "m").test(config)) {
+      return serverName;
+    }
+  }
+
+  return undefined;
+}
+
+function tomlTableKeyPattern(value: string): string {
+  const quoted = escapeRegExp(JSON.stringify(value));
+  const singleQuoted = escapeRegExp(`'${value}'`);
+
+  if (/^[A-Za-z0-9_-]+$/.test(value)) {
+    return `(?:${quoted}|${singleQuoted}|${escapeRegExp(value)})`;
+  }
+
+  return `(?:${quoted}|${singleQuoted})`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Formats Codex generation diagnostics for CLI and control-skill surfaces. */
@@ -887,6 +1078,31 @@ async function readCodexMarketplace(path: string): Promise<ReadMarketplaceResult
   };
 }
 
+async function readExistingCodexConfig(
+  path: string,
+  diagnostics: Diagnostic[],
+): Promise<string | undefined> {
+  try {
+    await assertPathDoesNotContainSymlinks(path);
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return "";
+    }
+
+    diagnostics.push({
+      code: isSymlinkPathError(error) ? "unsafe-codex-config-path" : "unreadable-codex-config",
+      message:
+        error instanceof Error && isSymlinkPathError(error)
+          ? error.message
+          : "Existing Codex config could not be read.",
+      path,
+      severity: "error",
+    });
+    return undefined;
+  }
+}
+
 function normalizeCodexMarketplace(value: unknown): CodexMarketplace | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -1277,12 +1493,18 @@ function addWriteOperation(
   operations: WriteOperation[],
   generatedPaths: string[],
   diagnostics: Diagnostic[],
+  trackOutput = true,
 ): boolean {
   if (!reserveGeneratedPath(path, generatedPaths, diagnostics)) {
     return false;
   }
 
-  operations.push({ content, kind: "write", targetPath: path });
+  operations.push({
+    content,
+    kind: "write",
+    targetPath: path,
+    ...(trackOutput ? {} : { trackOutput }),
+  });
   return true;
 }
 
@@ -1342,7 +1564,9 @@ async function executeWriteOperation(operation: WriteOperation, files: string[])
     await writeFile(operation.targetPath, operation.content);
   }
 
-  files.push(operation.targetPath);
+  if (operation.trackOutput !== false) {
+    files.push(operation.targetPath);
+  }
 }
 
 async function assertWritableFilePath(path: string): Promise<void> {

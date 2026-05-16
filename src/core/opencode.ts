@@ -6,6 +6,7 @@ import { dirname, join, parse, relative, resolve, sep } from "node:path";
 import { isBuiltInControlPack } from "./control-packs";
 import { discoverPackRepository } from "./discovery";
 import { readPackLock, writePackGenerationLock, type LockedOutput } from "./lockfile";
+import { readPortableMcpServers, renderOpenCodeMcpServers } from "./mcp";
 import { isAssetPayloadPath, renderAssetPayloadRefs } from "./payload-refs";
 import type { AssetIndex, Diagnostic, PackIndex } from "./types";
 
@@ -36,11 +37,16 @@ type ReadJsonObjectResult =
   | { readonly status: "ok"; readonly value: Record<string, unknown> }
   | { readonly diagnostic: Diagnostic; readonly status: "error" };
 
+type ReadMcpMetadataResult =
+  | { readonly generatedMcpServers: ReadonlySet<string>; readonly status: "ok" }
+  | { readonly diagnostic: Diagnostic; readonly status: "error" };
+
 type WriteOperation =
   | { readonly content: string | Uint8Array; readonly kind: "write"; readonly targetPath: string }
   | { readonly kind: "copy"; readonly sourcePath: string; readonly targetPath: string };
 
 const OPENCODE_SCHEMA = "https://opencode.ai/config.json";
+const OPENCODE_MCP_METADATA_FILE = join(".packport", "mcp.json");
 const OPENCODE_DEFAULT_OUTPUT_DIRECTORY = join(".packs", "opencode");
 const PACKPORT_TOOL_VERSION = "0.0.0";
 
@@ -182,7 +188,13 @@ async function planOpenCodePackage(
   }
 
   const packagePath = join(outputPath, pack.id);
-  const configDiagnostic = await planOpenCodeConfig(packagePath, operations);
+  const configDiagnostic = await planOpenCodeConfig(
+    pack,
+    packagePath,
+    operations,
+    generatedPaths,
+    diagnostics,
+  );
   let commands = 0;
   let agents = 0;
   let skills = 0;
@@ -379,23 +391,136 @@ function validateOpenCodeOutputRoot(rootPath: string, outputPath: string): Diagn
 
 /** Plans a minimal repo-local OpenCode config while preserving existing unmanaged keys. */
 async function planOpenCodeConfig(
+  pack: PackIndex,
   outputPath: string,
   operations: WriteOperation[],
+  generatedPaths: Set<string>,
+  diagnostics: Diagnostic[],
 ): Promise<Diagnostic | undefined> {
   const configPath = join(outputPath, "opencode.json");
+  const metadataPath = join(outputPath, OPENCODE_MCP_METADATA_FILE);
   const config = await readJsonObject(configPath);
 
   if (config.status === "error") {
     return config.diagnostic;
   }
 
-  const nextConfig = { ...config.value, $schema: OPENCODE_SCHEMA };
-  operations.push({
-    content: `${JSON.stringify(nextConfig, null, 2)}\n`,
-    kind: "write",
-    targetPath: configPath,
-  });
+  const metadata = await readOpenCodeMcpMetadata(metadataPath);
+
+  if (metadata.status === "error") {
+    return metadata.diagnostic;
+  }
+
+  const mcp = await readOpenCodeMcpConfig(pack, diagnostics);
+  const existingMcp = config.value.mcp;
+
+  if (existingMcp !== undefined && !isRecord(existingMcp)) {
+    return {
+      code: "invalid-opencode-config",
+      message: "Existing opencode.json mcp field must contain an object.",
+      path: configPath,
+      severity: "error",
+    };
+  }
+
+  const { mcp: _existingMcp, ...preservedConfig } = config.value;
+  const preservedMcp = Object.fromEntries(
+    Object.entries(isRecord(existingMcp) ? existingMcp : {}).filter(
+      ([name]) => !metadata.generatedMcpServers.has(name),
+    ),
+  );
+  const nextMcp = { ...preservedMcp, ...mcp };
+  const nextConfig = {
+    ...preservedConfig,
+    $schema: OPENCODE_SCHEMA,
+    ...(Object.keys(nextMcp).length > 0 ? { mcp: nextMcp } : {}),
+  };
+  addWriteOperation(
+    configPath,
+    `${JSON.stringify(nextConfig, null, 2)}\n`,
+    operations,
+    generatedPaths,
+    diagnostics,
+  );
+
+  if (Object.keys(mcp).length > 0) {
+    addWriteOperation(
+      metadataPath,
+      `${JSON.stringify({ generatedMcpServers: Object.keys(mcp).sort() }, null, 2)}\n`,
+      operations,
+      generatedPaths,
+      diagnostics,
+    );
+  }
+
   return undefined;
+}
+
+async function readOpenCodeMcpConfig(
+  pack: PackIndex,
+  diagnostics: Diagnostic[],
+): Promise<Record<string, unknown>> {
+  const servers: Record<string, unknown> = {};
+
+  for (const supportPath of pack.supportPaths) {
+    const mcpServers = await readPortableMcpServers(supportPath, diagnostics);
+
+    Object.assign(servers, renderOpenCodeMcpServers(mcpServers, supportPath, diagnostics));
+  }
+
+  return servers;
+}
+
+async function readOpenCodeMcpMetadata(path: string): Promise<ReadMcpMetadataResult> {
+  let contents: string;
+
+  try {
+    await assertPathDoesNotContainSymlinks(path);
+    contents = await readFile(path, "utf8");
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return { generatedMcpServers: new Set(), status: "ok" };
+    }
+
+    return {
+      diagnostic: {
+        code: isSymlinkPathError(error)
+          ? "unsafe-opencode-target-path"
+          : "unreadable-opencode-mcp-metadata",
+        message:
+          error instanceof Error && isSymlinkPathError(error)
+            ? error.message
+            : "Existing OpenCode MCP metadata could not be read.",
+        path,
+        severity: "error",
+      },
+      status: "error",
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(contents);
+
+    if (
+      isRecord(parsed) &&
+      Array.isArray(parsed.generatedMcpServers) &&
+      parsed.generatedMcpServers.every((server) => typeof server === "string")
+    ) {
+      return { generatedMcpServers: new Set(parsed.generatedMcpServers), status: "ok" };
+    }
+  } catch {
+    // Fall through to the common malformed metadata diagnostic.
+  }
+
+  return {
+    diagnostic: {
+      code: "invalid-opencode-mcp-metadata",
+      message: "Existing OpenCode MCP metadata must contain a generatedMcpServers string list.",
+      path,
+      severity: "error",
+    },
+    status: "error",
+  };
 }
 
 /** Writes one command or agent markdown file after applying OpenCode markdown adaptation. */
@@ -812,6 +937,10 @@ function stripQuotes(value: string): string {
   }
 
   return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Adds a final newline to generated Markdown when needed. */

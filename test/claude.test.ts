@@ -193,6 +193,29 @@ payloads:
     ]);
   });
 
+  test("copies Claude skill support files without ASSET.md declarations", async () => {
+    const rootPath = await createTempRepository("packport-claude-source-");
+    const outputPath = join(rootPath, CLAUDE_DEFAULT_OUTPUT_DIRECTORY);
+    await writeFileTree(rootPath, {
+      "packs/essentials/PACK.md": `---
+name: Essentials
+version: 1.0.0
+description: Core workflows.
+---
+`,
+      "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n",
+      "packs/essentials/skills/debugging/reference/examples.md": "# Examples\n",
+    });
+
+    const result = await generateClaudeOutput(rootPath);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(
+      await readFile(join(outputPath, "essentials/skills/debugging/reference/examples.md"), "utf8"),
+    ).toBe("# Examples\n");
+    await expect(lstat(join(outputPath, "essentials/skills/debugging/ASSET.md"))).rejects.toThrow();
+  });
+
   test("preserves existing marketplace metadata and replaces generated entries", async () => {
     const rootPath = await createTempRepository("packport-claude-source-");
     await writeFileTree(rootPath, {

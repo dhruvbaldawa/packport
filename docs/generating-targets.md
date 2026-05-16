@@ -25,10 +25,33 @@ During target generation, command, agent, and skill primary payloads render decl
 and `{{mcp.*}}` refs into target-specific prose. `{{config.*}}` refs are profile-local and block
 package generation unless they are handled later through configport materialization.
 
+Pack-level `.mcp.json` files are target material too. Claude Code receives the file directly,
+OpenCode receives target-native `opencode.json` MCP entries, and Codex receives a managed block in
+`.codex/config.toml`.
+
+## Generate
+
+```bash
+bun src/cli.ts generate .
+```
+
+By default, generation runs Claude Code, OpenCode, and Codex in that order. Use repeatable
+`--target` flags to limit the run:
+
+```bash
+bun src/cli.ts generate . --target codex
+bun src/cli.ts generate . --target claude --target opencode --no-configport
+```
+
+Generation emits every discovered pack, including control packs. It also reads
+`.configport/configport.json` and materializes instruction selections whose target is being
+generated. `--no-configport` skips instruction materialization. Configport overlays stay explicit
+through `configport apply`.
+
 ## OpenCode
 
 ```bash
-bun src/cli.ts opencode generate . .packs/opencode
+bun src/cli.ts generate . --target opencode
 ```
 
 The OpenCode emitter writes:
@@ -42,13 +65,12 @@ The OpenCode emitter writes:
 
 Current behavior:
 
-- built-in control packs are skipped unless `--include-control-packs` is passed for packport
-  dogfood output.
 - packs become separate OpenCode package/config roots.
 - commands become OpenCode command markdown.
 - agents become OpenCode subagent markdown.
 - skills are copied into `.opencode/skills/`.
 - skill support files are copied except packport source metadata.
+- pack-level `.mcp.json` is merged into `opencode.json` as OpenCode MCP config.
 - Claude-style `$ARGS` and `${{{ARGS}}}` placeholders become `$ARGUMENTS`.
 - common Claude model names such as `claude-*` are converted to `anthropic/claude-*`.
 - hooks are reported as unsupported warnings.
@@ -56,7 +78,7 @@ Current behavior:
 ## Codex
 
 ```bash
-bun src/cli.ts codex generate .
+bun src/cli.ts generate . --target codex
 ```
 
 By default, Codex output is written under `.packs/codex/` and the local marketplace is written to
@@ -69,17 +91,17 @@ The Codex emitter writes one plugin per source pack:
 .packs/codex/<pack>/skills/<name>/SKILL.md
 .packs/codex/<pack>/agents/<name>.md
 .agents/plugins/marketplace.json
+.codex/config.toml
 ```
 
 Current behavior:
 
-- built-in control packs are skipped unless `--include-control-packs` is passed for packport
-  dogfood output.
 - packs become Codex plugins.
 - skills become Codex skills.
 - commands become Codex skills.
 - agents become Codex agents.
 - skill support files are copied.
+- pack-level `.mcp.json` is written into a packport-managed `.codex/config.toml` block.
 - existing non-generated marketplace entries are preserved.
 - generated marketplace entries are replaced by pack name.
 - output paths must stay under `.packs/` and outside `packs/` and `.agents/`.
@@ -88,7 +110,7 @@ Current behavior:
 ## Claude Code
 
 ```bash
-bun src/cli.ts claude generate .
+bun src/cli.ts generate . --target claude
 ```
 
 By default, Claude output is written under `.packs/claude/` and the local marketplace is written to
@@ -106,13 +128,12 @@ The Claude emitter writes one plugin per source pack:
 
 Current behavior:
 
-- built-in control packs are skipped; use `control-plugin claude ...` for Claude Code control
-  plugins.
 - packs become Claude Code plugins.
 - commands become Claude slash-command markdown.
 - agents become Claude subagent markdown.
 - skills are copied into `skills/`.
 - skill support files are copied except packport source metadata.
+- pack-level `.mcp.json` is copied into the generated plugin.
 - existing non-generated marketplace entries are preserved.
 - generated marketplace entries are replaced by pack name.
 - instruction assets are materialized by configport, not by plugin generation.
@@ -155,7 +176,7 @@ The intended loop is:
 ```text
 edit packs/ or configport state
 run check
-generate target output
+run generate
 run project quality gate
 commit source and generated output together when generated output is part of distribution
 ```

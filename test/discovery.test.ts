@@ -27,6 +27,7 @@ description: Core workflows.
       "packs/essentials/instructions/repo-workflow/INSTRUCTION.md":
         "# Repo Workflow\n\nUse repository context.\n",
       "packs/essentials/skills/debugging/SKILL.md": "# Debugging\n\nFind root causes.\n",
+      "packs/essentials/skills/debugging/reference/examples.md": "# Examples\n",
       "packs/essentials/.mcp.json": '{"mcpServers":{}}\n',
     });
 
@@ -59,6 +60,11 @@ description: Core workflows.
 
     const skill = pack?.assets.find((asset) => asset.id === "essentials/skill/debugging");
     expect(skill?.contract).toBeUndefined();
+    expect(
+      skill?.supportPaths.map((supportPath) =>
+        supportPath.endsWith("skills/debugging/reference/examples.md"),
+      ),
+    ).toEqual([true]);
   });
 
   test("discovers declared portable refs in pack, asset, and payload scopes", async () => {

@@ -11,12 +11,10 @@ From the packport repo:
 ```bash
 bun link
 packport check .
-packport claude generate .
-packport opencode generate . .packs/opencode --include-control-packs
-packport codex generate . --include-control-packs
 packport control-plugin claude .packs/claude/packport
 packport control-plugin claude configport .packs/claude/configport
 packport control-plugin claude-marketplace .
+packport generate .
 bun run check
 ```
 
@@ -26,8 +24,8 @@ These are the committed dogfood entry points:
 - Codex: `.agents/plugins/marketplace.json`
 - OpenCode: `.packs/opencode/`
 
-The control-pack inclusion flag is only for this repository's generated control packs. Normal
-portable pack repositories should let generation skip tool-owned control packs.
+Generation now emits every discovered pack. The separate `control-plugin` commands above are only
+for this repository's reserved Claude Code control plugin packages.
 
 ## Use The Harness As The Shell
 
@@ -80,9 +78,7 @@ Validate and generate from the portable output:
 
 ```bash
 packport check /tmp/ccconfigs-portable
-packport claude generate /tmp/ccconfigs-portable
-packport codex generate /tmp/ccconfigs-portable
-packport opencode generate /tmp/ccconfigs-portable /tmp/ccconfigs-portable/.packs/opencode
+packport generate /tmp/ccconfigs-portable
 packport check /tmp/ccconfigs-portable
 ```
 

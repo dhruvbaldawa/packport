@@ -42,25 +42,24 @@ lockfile drift, and committed generated output that no longer matches the curren
 ## 2. Regenerate Dogfood Output
 
 ```bash
-packport claude generate .
-packport opencode generate . .packs/opencode --include-control-packs
-packport codex generate . --include-control-packs
 packport control-plugin claude .packs/claude/packport
 packport control-plugin claude configport .packs/claude/configport
 packport control-plugin claude-marketplace .
+packport generate .
 ```
 
 These commands produce:
 
 - `.packs/claude/` with Claude Code plugins.
 - `.packs/opencode/<pack>/` with OpenCode package/config roots.
-- `.packs/codex/packport-control/` and `.packs/codex/configport-control/`.
+- `.packs/codex/<pack>/` with Codex plugins.
 - `.agents/plugins/marketplace.json` for Codex local plugins.
 - `.packs/claude/packport/` and `.packs/claude/configport/`.
 - `.claude-plugin/marketplace.json` for Claude Code local plugins.
 
-The `--include-control-packs` flag is for packport's dogfood control packs. Ordinary pack
-repositories should omit it so tool-owned control workflows do not appear as user pack plugins.
+`packport generate .` emits every discovered pack, including this repository's control packs. The
+`control-plugin` commands remain for the reserved Claude Code control plugin packages used by the
+dogfood marketplace.
 
 ## 3. Run The Full Quality Gate
 
@@ -70,16 +69,27 @@ bun run check
 
 This runs format, lint, typecheck, and tests.
 
-## 4. Try The Control Packs
+## 4. Install Locally
 
-Use the generated marketplace files as the local package entry points for your harness:
+Preview the global tool-home writes first:
 
-- Codex: `.agents/plugins/marketplace.json`
-- Claude Code: `.claude-plugin/marketplace.json`
-- OpenCode: `.packs/opencode/<pack>/opencode.json` and
-  `.packs/opencode/<pack>/.opencode/skills/`
+```bash
+packport install . --dry-run
+```
 
-Then invoke a generated control skill:
+Then install the generated output into Claude Code, OpenCode, and Codex global config roots:
+
+```bash
+packport install .
+```
+
+Use `--target codex`, `--target claude`, or `--target opencode` to install one tool. Override
+detected homes with `--codex-home`, `--agents-root`, `--claude-home`, or
+`--opencode-config-root` when testing against temporary directories.
+
+## 5. Try The Control Packs
+
+After install, invoke a generated control skill from the target tool:
 
 - `author-pack` creates or extends portable pack source.
 - `check-pack` validates a portable pack repository.
@@ -90,7 +100,7 @@ Then invoke a generated control skill:
 - `configure-pack` records local replacements and overlay files.
 - `apply-pack` materializes generated output through a selected configport profile.
 
-## 5. First Real Workflow
+## 6. First Real Workflow
 
 Start with a small pack repository or a copy of `ccconfigs`:
 
@@ -109,6 +119,5 @@ From there, validate and generate target output:
 
 ```bash
 packport check /tmp/portable-packs
-packport codex generate /tmp/portable-packs
-packport opencode generate /tmp/portable-packs /tmp/portable-packs/.packs/opencode
+packport generate /tmp/portable-packs
 ```

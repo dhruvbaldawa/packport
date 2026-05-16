@@ -32,7 +32,7 @@ assets:
   - id: packport-control/skill/generate-pack
     kind: skill
     payloads:
-      - hash: c851cc06d35cb5675c7dd014037407c4f73b5bb30e3c289c3d3624d19812e3ef
+      - hash: f534beda1ab6d2ffa4db45a5e881c01c107ed62ecd80a6b24bc068b2c3ed2cd9
         path: packs/packport-control/skills/generate-pack/SKILL.md
   - id: packport-control/skill/migrate-claude
     kind: skill
@@ -52,9 +52,29 @@ outputs:
     kind: marketplace
     path: .agents/plugins/marketplace.json
     target: codex
-  - hash: 017e229d634bedc4be5f53c8c2fcbd4258462db1638aa2d511d03cd39fe6ae6c
+  - hash: 6f85129e18dada66fe63af3c69af99de970c6f766ffbcf5d2d2180a9a0bffe66
     kind: marketplace
     path: .claude-plugin/marketplace.json
+    target: claude
+  - hash: 03b28bf7563e3aee5da704816409458e7b997342eb0c953b1e5dc0ead53fd141
+    kind: package
+    packageName: configport-control
+    path: .packs/claude/configport-control/.claude-plugin/plugin.json
+    target: claude
+  - hash: 0905c0126d07e3f178af1501f94c0c8093b07364a4256977febfce7f6b56deac
+    kind: package
+    packageName: configport-control
+    path: .packs/claude/configport-control/skills/apply-pack/SKILL.md
+    target: claude
+  - hash: ed79b2ce0c461191a2fdb5abd53878b90936112b8c3a81065aa816428b42fc88
+    kind: package
+    packageName: configport-control
+    path: .packs/claude/configport-control/skills/configure-pack/SKILL.md
+    target: claude
+  - hash: a0be59b0e4d4b3586ab788c884f3eb8c9ed58564e44ecf493d8a9cc6fdcc7d09
+    kind: package
+    packageName: configport-control
+    path: .packs/claude/configport-control/skills/configure-tools/SKILL.md
     target: claude
   - hash: ec32cc17820f9f1a32a94ab540bd2caad140fb590cb93df80f4cdda767e10fc6
     kind: package
@@ -81,6 +101,41 @@ outputs:
     packageName: configport
     path: .packs/claude/configport/skills/configure-tools/SKILL.md
     target: claude
+  - hash: c040abe7add240a862c2053865276e28387b7220419fc8db6192c029a295f812
+    kind: package
+    packageName: packport-control
+    path: .packs/claude/packport-control/.claude-plugin/plugin.json
+    target: claude
+  - hash: b21f8af38facdb1f062083c19d3815b63965f0c6e5e47937ea5e62f6bef31965
+    kind: package
+    packageName: packport-control
+    path: .packs/claude/packport-control/skills/add-harness/SKILL.md
+    target: claude
+  - hash: b43c64a4a5bf890ddeaf58e228327a55e74774a5a8cd7cc060254185421116cb
+    kind: package
+    packageName: packport-control
+    path: .packs/claude/packport-control/skills/author-pack/SKILL.md
+    target: claude
+  - hash: 794c0e883d037a64b0ecae3754164273f4fb5fa5527119c887a5466d0e3097b5
+    kind: package
+    packageName: packport-control
+    path: .packs/claude/packport-control/skills/check-pack/SKILL.md
+    target: claude
+  - hash: f534beda1ab6d2ffa4db45a5e881c01c107ed62ecd80a6b24bc068b2c3ed2cd9
+    kind: package
+    packageName: packport-control
+    path: .packs/claude/packport-control/skills/generate-pack/SKILL.md
+    target: claude
+  - hash: b0e40cade456930fc8f914819b3a8d06f909e548bf68e4170fdca533ff96b000
+    kind: package
+    packageName: packport-control
+    path: .packs/claude/packport-control/skills/migrate-claude/SKILL.md
+    target: claude
+  - hash: 5b4b7a5d918be683b04fe6d0575c8cb52371a37d4992085bc1bbd2c8a594d94c
+    kind: package
+    packageName: packport-control
+    path: .packs/claude/packport-control/skills/release-pack/SKILL.md
+    target: claude
   - hash: 4e3538491c43a11dc8df78894cf5309d11a9099ea1f505f41c9586467833508c
     kind: package
     packageName: packport
@@ -106,7 +161,7 @@ outputs:
     packageName: packport
     path: .packs/claude/packport/skills/check-pack/SKILL.md
     target: claude
-  - hash: c851cc06d35cb5675c7dd014037407c4f73b5bb30e3c289c3d3624d19812e3ef
+  - hash: f534beda1ab6d2ffa4db45a5e881c01c107ed62ecd80a6b24bc068b2c3ed2cd9
     kind: package
     packageName: packport
     path: .packs/claude/packport/skills/generate-pack/SKILL.md
@@ -161,7 +216,7 @@ outputs:
     packageName: packport-control
     path: .packs/codex/packport-control/skills/check-pack/SKILL.md
     target: codex
-  - hash: 83399eaea8a47d88204d4115180e977648f9cc7c6b26b89423d0ae19f909c781
+  - hash: 68027e23df85e159cea143dbbe161afce2e71d2febc3e41fcd3bc684d4b48fa1
     kind: package
     packageName: packport-control
     path: .packs/codex/packport-control/skills/generate-pack/SKILL.md
@@ -211,7 +266,7 @@ outputs:
     packageName: packport-control
     path: .packs/opencode/packport-control/.opencode/skills/check-pack/SKILL.md
     target: opencode
-  - hash: 83399eaea8a47d88204d4115180e977648f9cc7c6b26b89423d0ae19f909c781
+  - hash: 68027e23df85e159cea143dbbe161afce2e71d2febc3e41fcd3bc684d4b48fa1
     kind: package
     packageName: packport-control
     path: .packs/opencode/packport-control/.opencode/skills/generate-pack/SKILL.md

@@ -2,7 +2,7 @@
 // ABOUTME: Keeps interactive workflows in skills while preserving automation entrypoints.
 
 import { join } from "node:path";
-import { formatClaudeDiagnostics, generateClaudeOutput } from "./core/claude";
+import { generateClaudeOutput } from "./core/claude";
 import {
   formatClaudeMigrationPlan,
   formatClaudeMigrationScan,
@@ -11,12 +11,13 @@ import {
   writeClaudeMigration,
 } from "./core/claude-migration";
 import { checkPackRepository, formatDiagnostics } from "./core/check";
-import { generateCodexOutput, formatCodexDiagnostics } from "./core/codex";
+import { generateCodexOutput } from "./core/codex";
 import {
   applyConfigportOverlay,
   checkConfigportOverlay,
   formatConfigportDiagnostics,
   materializeConfigportInstructions,
+  readConfigportState,
   writeConfigportInstructionSelection,
   writeConfigportOverlay,
   type ConfigportFileOverlay,
@@ -31,19 +32,31 @@ import {
   type ControlPluginKind,
 } from "./core/control-plugin";
 import type { HarnessTarget } from "./core/harness-refs";
+import {
+  installPackRepository,
+  INSTALL_TARGETS,
+  type InstallPackRepositoryOptions,
+  type InstallTarget,
+} from "./core/install";
+import { readPackLock, writePackLock } from "./core/lockfile";
 import { generateOpenCodeOutput } from "./core/opencode";
+import type { Diagnostic } from "./core/types";
 
 const PACKAGE_VERSION = "0.0.0";
 const CONTROL_SOURCE_ROOT = join(import.meta.dir, "..");
-const USAGE =
-  "Usage: packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...";
-const CLAUDE_USAGE = "Usage: packport claude generate <pack-root> [output-root]";
-const OPENCODE_USAGE =
-  "Usage: packport opencode generate <pack-root> <output-root> [--include-control-packs]";
-const CODEX_USAGE =
-  "Usage: packport codex generate <pack-root> [output-root] [--include-control-packs]";
+const GENERATE_USAGE =
+  "Usage: packport generate [root] [--target <claude|opencode|codex>]... [--no-configport]";
+const INSTALL_USAGE =
+  "Usage: packport install [root] [--target <claude|opencode|codex>]... [--dry-run] [--no-configport] [--codex-home <path>] [--agents-root <path>] [--claude-home <path>] [--opencode-config-root <path>]";
+const USAGE = `${GENERATE_USAGE}\n       ${INSTALL_USAGE}\n       packport check [root]\n       packport control-plugin claude <output> [source-root]\n       packport control-plugin claude configport <output> [source-root]\n       packport control-plugin claude-marketplace <repo-root> [package-root]\n       packport migrate-claude scan [root]\n       packport migrate-claude plan [root] [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...\n       packport migrate-claude write <source> <output> [--accept-asset <plugin/name>]... [--exclude-plugin <name>]... [--exclude-asset <plugin/name>]...`;
 const CONFIGPORT_USAGE =
   "Usage: packport configport overlay put <state-root> <profile> <target> <pack> [--replace <from=to>]... [--file <path=content>]...\n       packport configport apply <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport check <state-root> <generated> <output> --profile <profile> --target <target> --pack <pack>\n       packport configport instructions put <state-root> <profile> <target> <pack> <scope> --instruction <name>... [--answer <key=value>]...\n       packport configport instructions apply <state-root> <pack-root> <output> --profile <profile> --target <target> --pack <pack> --scope <scope>";
+const GENERATE_NO_CONFIGPORT_DECISION = "generate:no-configport";
+const GENERATE_NO_CONFIGPORT_DECISION_PREFIX = `${GENERATE_NO_CONFIGPORT_DECISION}:`;
+
+const GENERATE_TARGETS = ["claude", "opencode", "codex"] as const;
+
+type GenerateTarget = (typeof GENERATE_TARGETS)[number];
 
 type ParsedClaudeMigrationArgs =
   | {
@@ -104,16 +117,51 @@ type CliResult = {
 
 type ParsedGenerateArgs =
   | {
-      readonly includeControlPacks: boolean;
-      readonly outputPath?: string;
+      readonly materializeConfigport: boolean;
+      readonly rootPath: string;
+      readonly status: "ok";
+      readonly targets: readonly GenerateTarget[];
+    }
+  | { readonly message: string; readonly status: "error" };
+
+type ValidGenerateArgs = Extract<ParsedGenerateArgs, { readonly status: "ok" }>;
+
+type ParsedInstallArgs =
+  | {
+      readonly options: InstallPackRepositoryOptions;
       readonly rootPath: string;
       readonly status: "ok";
     }
-  | { readonly status: "error" };
+  | { readonly message: string; readonly status: "error" };
+
+type ValidInstallArgs = Extract<ParsedInstallArgs, { readonly status: "ok" }>;
+type MutableInstallOptions = {
+  -readonly [Key in keyof InstallPackRepositoryOptions]: InstallPackRepositoryOptions[Key];
+};
 
 /** Runs the packport CLI with explicit argv for tests and the process argv for production. */
 export async function runCli(argv: readonly string[]): Promise<CliResult> {
   const [command, ...args] = argv;
+
+  if (command === "generate") {
+    const parsed = parseGenerateArgs(args);
+
+    if (parsed.status === "error") {
+      return { exitCode: 1, stderr: `${parsed.message}\n${GENERATE_USAGE}` };
+    }
+
+    return await runGenerateCli(parsed);
+  }
+
+  if (command === "install") {
+    const parsed = parseInstallArgs(args);
+
+    if (parsed.status === "error") {
+      return { exitCode: 1, stderr: `${parsed.message}\n${INSTALL_USAGE}` };
+    }
+
+    return await runInstallCli(parsed);
+  }
 
   if (command === "check") {
     const [rootPath = process.cwd()] = args;
@@ -259,81 +307,214 @@ export async function runCli(argv: readonly string[]): Promise<CliResult> {
     return { exitCode: 1, stderr: USAGE };
   }
 
-  if (command === "claude") {
-    const [subcommand, rootPath, outputPath] = args;
-
-    if (subcommand !== "generate" || rootPath === undefined) {
-      return { exitCode: 1, stderr: CLAUDE_USAGE };
-    }
-
-    if (args.length > 3) {
-      return { exitCode: 1, stderr: CLAUDE_USAGE };
-    }
-
-    const result = await generateClaudeOutput(rootPath, outputPath);
-    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
-    const diagnostics = formatClaudeDiagnostics(result.diagnostics);
-    const summary = `Generated Claude output at ${result.outputPath} with ${result.summary.plugins} plugin(s), ${result.summary.commands} command(s), ${result.summary.agents} agent(s), ${result.summary.skills} skill(s), and ${result.summary.marketplaceEntries} marketplace entry(s).`;
-
-    return {
-      exitCode: ok ? 0 : 1,
-      stdout: result.diagnostics.length > 0 ? `${summary}\n${diagnostics}` : summary,
-    };
-  }
-
-  if (command === "opencode") {
-    const parsed = parseGenerateArgs(args, { outputRequired: true });
-
-    if (parsed.status === "error" || parsed.outputPath === undefined) {
-      return { exitCode: 1, stderr: OPENCODE_USAGE };
-    }
-
-    const result = await generateOpenCodeOutput(parsed.rootPath, parsed.outputPath, {
-      includeControlPacks: parsed.includeControlPacks,
-    });
-    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
-    const diagnostics = result.diagnostics
-      .map(
-        (diagnostic) =>
-          `${diagnostic.severity.toUpperCase()} ${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`,
-      )
-      .join("\n");
-    const summary = `Generated OpenCode output at ${result.outputPath} with ${result.summary.packages} package(s), ${result.summary.commands} command(s), ${result.summary.agents} agent(s), and ${result.summary.skills} skill(s).`;
-
-    return {
-      exitCode: ok ? 0 : 1,
-      stdout: diagnostics ? `${summary}\n${diagnostics}` : summary,
-    };
-  }
-
-  if (command === "codex") {
-    const parsed = parseGenerateArgs(args, { outputRequired: false });
-
-    if (parsed.status === "error") {
-      return { exitCode: 1, stderr: CODEX_USAGE };
-    }
-
-    const result = await generateCodexOutput(parsed.rootPath, parsed.outputPath, {
-      includeControlPacks: parsed.includeControlPacks,
-    });
-    const ok = !result.diagnostics.some((diagnostic) => diagnostic.severity === "error");
-    const diagnostics = formatCodexDiagnostics(result.diagnostics);
-    const summary = `Generated Codex output at ${result.outputPath} with ${result.summary.plugins} plugin(s), ${result.summary.skills} skill(s), ${result.summary.agents} agent(s), and ${result.summary.marketplaceEntries} marketplace entry(s).`;
-
-    return {
-      exitCode: ok ? 0 : 1,
-      stdout: result.diagnostics.length > 0 ? `${summary}\n${diagnostics}` : summary,
-    };
-  }
-
   if (command === "configport") {
     return await runConfigportCli(args);
   }
 
   return {
     exitCode: 1,
-    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${CLAUDE_USAGE}\n${OPENCODE_USAGE}\n${CODEX_USAGE}\n${CONFIGPORT_USAGE}`,
+    stderr: `Unknown command '${command ?? ""}'.\n${USAGE}\n${CONFIGPORT_USAGE}`,
   };
+}
+
+async function runGenerateCli(parsed: ValidGenerateArgs): Promise<CliResult> {
+  const summaries: string[] = [];
+  const diagnostics: Diagnostic[] = [];
+
+  for (const target of parsed.targets) {
+    if (target === "claude") {
+      const result = await generateClaudeOutput(parsed.rootPath, undefined, {
+        includeControlPacks: true,
+      });
+
+      summaries.push(
+        `Generated Claude output at ${result.outputPath} with ${result.summary.plugins} plugin(s), ${result.summary.commands} command(s), ${result.summary.agents} agent(s), ${result.summary.skills} skill(s), and ${result.summary.marketplaceEntries} marketplace entry(s).`,
+      );
+      diagnostics.push(...result.diagnostics);
+      continue;
+    }
+
+    if (target === "opencode") {
+      const result = await generateOpenCodeOutput(
+        parsed.rootPath,
+        join(parsed.rootPath, ".packs", "opencode"),
+        { includeControlPacks: true },
+      );
+
+      summaries.push(
+        `Generated OpenCode output at ${result.outputPath} with ${result.summary.packages} package(s), ${result.summary.commands} command(s), ${result.summary.agents} agent(s), and ${result.summary.skills} skill(s).`,
+      );
+      diagnostics.push(...result.diagnostics);
+      continue;
+    }
+
+    const result = await generateCodexOutput(parsed.rootPath, undefined, {
+      includeControlPacks: true,
+    });
+
+    summaries.push(
+      `Generated Codex output at ${result.outputPath} with ${result.summary.plugins} plugin(s), ${result.summary.skills} skill(s), ${result.summary.agents} agent(s), and ${result.summary.marketplaceEntries} marketplace entry(s).`,
+    );
+    diagnostics.push(...result.diagnostics);
+  }
+
+  if (!hasErrorDiagnostics(diagnostics)) {
+    diagnostics.push(
+      ...(await updateGenerateConfigportDecision(
+        parsed.rootPath,
+        parsed.materializeConfigport,
+        parsed.targets,
+      )),
+    );
+  }
+
+  if (parsed.materializeConfigport && !hasErrorDiagnostics(diagnostics)) {
+    const configportResult = await materializeGenerateConfigportInstructions(
+      parsed.rootPath,
+      parsed.targets,
+    );
+
+    if (configportResult.selections > 0) {
+      summaries.push(
+        `Materialized configport instructions to ${parsed.rootPath} with ${configportResult.files} file(s), ${configportResult.instructions} instruction(s), and ${configportResult.selections} selection(s).`,
+      );
+    }
+
+    diagnostics.push(...configportResult.diagnostics);
+  }
+
+  const diagnosticsText = formatCliDiagnostics(diagnostics);
+
+  return {
+    exitCode: hasErrorDiagnostics(diagnostics) ? 1 : 0,
+    stdout: diagnosticsText ? `${summaries.join("\n")}\n${diagnosticsText}` : summaries.join("\n"),
+  };
+}
+
+async function runInstallCli(parsed: ValidInstallArgs): Promise<CliResult> {
+  const result = await installPackRepository(parsed.rootPath, parsed.options);
+  const diagnosticsText = formatCliDiagnostics(result.diagnostics);
+  const writeLines = result.writes.map(
+    (write) =>
+      `${result.dryRun ? "Would write" : "Installed"} ${write.description} at ${write.path}.`,
+  );
+  const stdout = [...result.summaries, ...writeLines, diagnosticsText]
+    .filter((line) => line !== "")
+    .join("\n");
+
+  return {
+    exitCode: hasErrorDiagnostics(result.diagnostics) ? 1 : 0,
+    stdout,
+  };
+}
+
+async function materializeGenerateConfigportInstructions(
+  rootPath: string,
+  targets: readonly GenerateTarget[],
+): Promise<{
+  readonly diagnostics: readonly Diagnostic[];
+  readonly files: number;
+  readonly instructions: number;
+  readonly selections: number;
+}> {
+  const stateRootPath = join(rootPath, ".configport");
+  const stateResult = await readConfigportState(stateRootPath);
+  const diagnostics: Diagnostic[] = [];
+  let files = 0;
+  let instructions = 0;
+
+  if (stateResult.status === "error") {
+    diagnostics.push(...stateResult.diagnostics);
+  }
+
+  const targetSet = new Set<GenerateTarget>(targets);
+  const selections = stateResult.state.instructionSelections.filter((selection) =>
+    targetSet.has(selection.target),
+  );
+
+  for (const selection of selections) {
+    const result = await materializeConfigportInstructions({
+      outputPath: rootPath,
+      pack: selection.pack,
+      packRootPath: rootPath,
+      profile: selection.profile,
+      scope: selection.scope,
+      stateRootPath,
+      target: selection.target,
+    });
+
+    diagnostics.push(...result.diagnostics);
+    files += result.summary.files;
+    instructions += result.summary.instructions;
+  }
+
+  return {
+    diagnostics,
+    files,
+    instructions,
+    selections: selections.length,
+  };
+}
+
+async function updateGenerateConfigportDecision(
+  rootPath: string,
+  materializeConfigport: boolean,
+  targets: readonly GenerateTarget[],
+): Promise<readonly Diagnostic[]> {
+  const lockResult = await readPackLock(rootPath);
+
+  if (lockResult.diagnostics.length > 0 || !lockResult.lock) {
+    return lockResult.diagnostics;
+  }
+
+  const targetSet = new Set(targets);
+  const lockedTargets = new Set(
+    lockResult.lock.outputs
+      .map((output) => output.target)
+      .filter((target): target is GenerateTarget => isGenerateTarget(target)),
+  );
+  const hadLegacyDecision = lockResult.lock.decisions.includes(GENERATE_NO_CONFIGPORT_DECISION);
+  const decisions = lockResult.lock.decisions.filter(
+    (decision) =>
+      decision !== GENERATE_NO_CONFIGPORT_DECISION &&
+      !targets.some((target) => decision === generateNoConfigportDecision(target)),
+  );
+  const nextDecisionSet = new Set(decisions);
+
+  if (hadLegacyDecision) {
+    for (const target of GENERATE_TARGETS) {
+      if (lockedTargets.has(target) && !targetSet.has(target)) {
+        nextDecisionSet.add(generateNoConfigportDecision(target));
+      }
+    }
+  }
+
+  if (!materializeConfigport) {
+    for (const target of targets) {
+      nextDecisionSet.add(generateNoConfigportDecision(target));
+    }
+  }
+
+  const nextDecisions = [...nextDecisionSet];
+
+  if (areEqualStringLists(nextDecisions, lockResult.lock.decisions)) {
+    return [];
+  }
+
+  await writePackLock(rootPath, { ...lockResult.lock, decisions: nextDecisions });
+  return [];
+}
+
+function generateNoConfigportDecision(target: GenerateTarget): string {
+  return `${GENERATE_NO_CONFIGPORT_DECISION_PREFIX}${target}`;
+}
+
+function isGenerateTarget(value: string): value is GenerateTarget {
+  return (GENERATE_TARGETS as readonly string[]).includes(value);
+}
+
+function areEqualStringLists(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 async function runConfigportCli(args: readonly string[]): Promise<CliResult> {
@@ -435,52 +616,230 @@ async function runConfigportCli(args: readonly string[]): Promise<CliResult> {
   return { exitCode: 1, stderr: CONFIGPORT_USAGE };
 }
 
-function parseGenerateArgs(
-  args: readonly string[],
-  options: { readonly outputRequired: boolean },
-): ParsedGenerateArgs {
-  const [subcommand, ...rest] = args;
-
-  if (subcommand !== "generate") {
-    return { status: "error" };
-  }
-
+function parseGenerateArgs(args: readonly string[]): ParsedGenerateArgs {
   const paths: string[] = [];
-  let includeControlPacks = false;
+  const selectedTargets = new Set<GenerateTarget>();
+  let materializeConfigport = true;
 
-  for (const arg of rest) {
-    if (arg === "--include-control-packs") {
-      includeControlPacks = true;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--target") {
+      const value = args[index + 1];
+      const target = parseGenerateTarget(value);
+
+      if (target === undefined) {
+        return {
+          message: "--target requires claude, opencode, or codex.",
+          status: "error",
+        };
+      }
+
+      selectedTargets.add(target);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--target=")) {
+      const target = parseGenerateTarget(arg.slice("--target=".length));
+
+      if (target === undefined) {
+        return {
+          message: "--target requires claude, opencode, or codex.",
+          status: "error",
+        };
+      }
+
+      selectedTargets.add(target);
+      continue;
+    }
+
+    if (arg === "--no-configport") {
+      materializeConfigport = false;
       continue;
     }
 
     if (arg.startsWith("--")) {
-      return { status: "error" };
+      return { message: `Unknown generate option '${arg}'.`, status: "error" };
     }
 
     paths.push(arg);
   }
 
-  if (paths.length < 1 || paths.length > 2) {
-    return { status: "error" };
-  }
-
-  if (options.outputRequired && paths.length !== 2) {
-    return { status: "error" };
-  }
-
-  const [rootPath, outputPath] = paths;
-
-  if (rootPath === undefined || (options.outputRequired && outputPath === undefined)) {
-    return { status: "error" };
+  if (paths.length > 1) {
+    return { message: "generate accepts at most one root path.", status: "error" };
   }
 
   return {
-    includeControlPacks,
-    ...(outputPath ? { outputPath } : {}),
-    rootPath,
+    materializeConfigport,
+    rootPath: paths[0] ?? process.cwd(),
+    status: "ok",
+    targets:
+      selectedTargets.size === 0
+        ? GENERATE_TARGETS
+        : GENERATE_TARGETS.filter((target) => selectedTargets.has(target)),
+  };
+}
+
+function parseGenerateTarget(value: string | undefined): GenerateTarget | undefined {
+  if (value === undefined || value === "" || value.startsWith("--")) {
+    return undefined;
+  }
+
+  return GENERATE_TARGETS.includes(value as GenerateTarget) ? (value as GenerateTarget) : undefined;
+}
+
+function parseInstallArgs(args: readonly string[]): ParsedInstallArgs {
+  const options: MutableInstallOptions = {};
+  const paths: string[] = [];
+  const selectedTargets = new Set<InstallTarget>();
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      continue;
+    }
+
+    if (arg === "--target") {
+      const value = args[index + 1];
+      const target = parseInstallTarget(value);
+
+      if (target === undefined) {
+        return { message: "--target requires claude, opencode, or codex.", status: "error" };
+      }
+
+      selectedTargets.add(target);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--target=")) {
+      const target = parseInstallTarget(arg.slice("--target=".length));
+
+      if (target === undefined) {
+        return { message: "--target requires claude, opencode, or codex.", status: "error" };
+      }
+
+      selectedTargets.add(target);
+      continue;
+    }
+
+    if (arg === "--dry-run") {
+      options.dryRun = true;
+      continue;
+    }
+
+    if (arg === "--no-configport") {
+      options.materializeConfigport = false;
+      continue;
+    }
+
+    if (
+      arg === "--codex-home" ||
+      arg === "--agents-root" ||
+      arg === "--claude-home" ||
+      arg === "--opencode-config-root"
+    ) {
+      const value = args[index + 1];
+
+      if (value === undefined || value === "" || value.startsWith("--")) {
+        return { message: `${arg} requires a path.`, status: "error" };
+      }
+
+      assignInstallPathOption(options, arg, value);
+      index += 1;
+      continue;
+    }
+
+    const pathOption = parseInstallPathOption(arg);
+
+    if (pathOption) {
+      assignInstallPathOption(options, pathOption.name, pathOption.value);
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      return { message: `Unknown install option '${arg}'.`, status: "error" };
+    }
+
+    paths.push(arg);
+  }
+
+  if (paths.length > 1) {
+    return { message: "install accepts at most one root path.", status: "error" };
+  }
+
+  return {
+    options: {
+      ...options,
+      targets:
+        selectedTargets.size === 0
+          ? INSTALL_TARGETS
+          : INSTALL_TARGETS.filter((target) => selectedTargets.has(target)),
+    },
+    rootPath: paths[0] ?? process.cwd(),
     status: "ok",
   };
+}
+
+function parseInstallTarget(value: string | undefined): InstallTarget | undefined {
+  if (value === undefined || value === "" || value.startsWith("--")) {
+    return undefined;
+  }
+
+  return INSTALL_TARGETS.includes(value as InstallTarget) ? (value as InstallTarget) : undefined;
+}
+
+function parseInstallPathOption(
+  arg: string,
+): { readonly name: string; readonly value: string } | undefined {
+  for (const name of ["--codex-home", "--agents-root", "--claude-home", "--opencode-config-root"]) {
+    if (arg.startsWith(`${name}=`)) {
+      const value = arg.slice(name.length + 1);
+
+      if (value === "") {
+        return undefined;
+      }
+
+      return { name, value };
+    }
+  }
+
+  return undefined;
+}
+
+function assignInstallPathOption(
+  options: MutableInstallOptions,
+  name: string,
+  value: string,
+): void {
+  if (name === "--codex-home") {
+    options.codexHomePath = value;
+  } else if (name === "--agents-root") {
+    options.agentsRootPath = value;
+  } else if (name === "--claude-home") {
+    options.claudeHomePath = value;
+  } else if (name === "--opencode-config-root") {
+    options.opencodeConfigRootPath = value;
+  }
+}
+
+function hasErrorDiagnostics(diagnostics: readonly Diagnostic[]): boolean {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
+
+function formatCliDiagnostics(diagnostics: readonly Diagnostic[]): string {
+  return diagnostics
+    .map(
+      (diagnostic) =>
+        `${diagnostic.severity.toUpperCase()} ${diagnostic.code} ${diagnostic.path}: ${diagnostic.message}`,
+    )
+    .join("\n");
 }
 
 function parseConfigportOverlayPutArgs(args: readonly string[]): ParsedConfigportOverlayPutArgs {

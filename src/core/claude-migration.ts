@@ -280,21 +280,6 @@ export async function planClaudeMigration(
         includeQuestions: !resolvedByAcceptance,
       });
 
-      if (asset.kind === "skill" && payloads.length > 1) {
-        addPlanFile(
-          files,
-          diagnostics,
-          plannedTargets,
-          {
-            action: "create",
-            content: createAssetPayloadsMarkdown(payloads),
-            description: `Declare ${asset.kind} payloads for ${plugin.name}/${asset.name}.`,
-            targetPath: slashPath(join(assetPath, "ASSET.md")),
-          },
-          asset.sourcePath,
-        );
-      }
-
       for (const payload of payloads) {
         addPlanFile(
           files,
@@ -974,17 +959,6 @@ function createPackMarkdown(plugin: ClaudeMigrationPlugin): string {
   ].join("\n");
 }
 
-/** Creates an asset contract that preserves migrated support files as declared payloads. */
-function createAssetPayloadsMarkdown(payloads: readonly PlannedPayload[]): string {
-  return [
-    "---",
-    "payloads:",
-    ...payloads.map((payload) => `  - ${payload.targetPath}`),
-    "---",
-    "",
-  ].join("\n");
-}
-
 /** Quotes generated frontmatter scalars when plain YAML syntax would be ambiguous. */
 function serializeFrontmatterValue(value: string): string {
   if (/^[A-Za-z0-9_./ -]+$/.test(value) && value.trim() === value) {
@@ -1038,7 +1012,7 @@ function addPlanFile(
   return true;
 }
 
-/** Collects primary and same-directory support files that would become asset payloads. */
+/** Collects a skill body and same-directory support files for migration output. */
 async function collectPlannedPayloads(
   plugin: ClaudeMigrationPlugin,
   asset: ClaudeMigrationAsset,

@@ -44,6 +44,7 @@ export type AssetIndex = {
   readonly directoryPath: string;
   readonly payloadPaths: readonly string[];
   readonly payloadRefs: readonly PortableRef[];
+  readonly supportPaths: readonly string[];
   readonly contract?: AssetContract;
 };
 

@@ -12,6 +12,7 @@ import {
   CONTROL_PACK_NAME,
   CONTROL_PLUGIN_NAME,
 } from "./control-packs";
+import { materializeConfigportInstructions, readConfigportState } from "./configport";
 import { generateClaudeControlMarketplace, generateClaudeControlPlugin } from "./control-plugin";
 import { discoverPackRepository } from "./discovery";
 import {
@@ -26,12 +27,18 @@ import { generateOpenCodeOutput } from "./opencode";
 import type { Diagnostic, PackRepositoryIndex } from "./types";
 
 const PACKPORT_TOOL_VERSION = "0.0.0";
+const GENERATE_NO_CONFIGPORT_DECISION = "generate:no-configport";
+const GENERATE_NO_CONFIGPORT_DECISION_PREFIX = `${GENERATE_NO_CONFIGPORT_DECISION}:`;
 const TEMP_WORKSPACE_PATHS = [
   "packs",
   PACK_LOCK_FILE,
   ".packs",
   ".claude-plugin",
   ".agents",
+  ".codex",
+  ".configport",
+  "AGENTS.md",
+  "CLAUDE.md",
 ] as const;
 
 export type CheckResult = {
@@ -74,7 +81,7 @@ async function detectGeneratedOutputDrift(rootPath: string, lock: PackLock): Pro
   try {
     await copyCheckWorkspace(rootPath, tempRootPath);
     const generationDiagnostics = remapTempDiagnostics(
-      await replayLockedGeneration(tempRootPath, lock.outputs),
+      await replayLockedGeneration(tempRootPath, lock.outputs, lock.decisions),
       rootPath,
       tempRootPath,
     );
@@ -90,6 +97,14 @@ async function detectGeneratedOutputDrift(rootPath: string, lock: PackLock): Pro
 
     diagnostics.push(
       ...(await compareGeneratedOutputs(rootPath, tempRootPath, tempLockResult.lock.outputs)),
+    );
+    diagnostics.push(
+      ...(await compareConfigportInstructionOutputs(
+        rootPath,
+        tempRootPath,
+        lock.outputs,
+        lock.decisions,
+      )),
     );
 
     if (serializePackLock(tempLockResult.lock) !== serializePackLock(lock)) {
@@ -138,11 +153,21 @@ async function copyCheckWorkspace(rootPath: string, tempRootPath: string): Promi
 async function replayLockedGeneration(
   tempRootPath: string,
   outputs: readonly LockedOutput[],
+  decisions: readonly string[],
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
 
   if (hasClaudeUserGeneration(outputs)) {
-    diagnostics.push(...(await generateClaudeOutput(tempRootPath)).diagnostics);
+    diagnostics.push(
+      ...(
+        await generateClaudeOutput(tempRootPath, undefined, {
+          includeControlPacks: hasPackage(outputs, "claude", [
+            CONFIGPORT_CONTROL_PACK_NAME,
+            CONTROL_PACK_NAME,
+          ]),
+        })
+      ).diagnostics,
+    );
   }
 
   if (hasTarget(outputs, "opencode")) {
@@ -196,6 +221,47 @@ async function replayLockedGeneration(
     await generateClaudeControlMarketplace(tempRootPath);
   }
 
+  diagnostics.push(
+    ...(await replayConfigportInstructionMaterialization(tempRootPath, outputs, decisions)),
+  );
+
+  return diagnostics;
+}
+
+async function replayConfigportInstructionMaterialization(
+  tempRootPath: string,
+  outputs: readonly LockedOutput[],
+  decisions: readonly string[],
+): Promise<Diagnostic[]> {
+  const stateRootPath = join(tempRootPath, ".configport");
+  const stateResult = await readConfigportState(stateRootPath);
+  const diagnostics: Diagnostic[] = [];
+  const targetSet = configportEnabledTargets(outputs, decisions);
+
+  if (stateResult.status === "error") {
+    diagnostics.push(...stateResult.diagnostics);
+  }
+
+  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return diagnostics;
+  }
+
+  for (const selection of stateResult.state.instructionSelections.filter((selection) =>
+    targetSet.has(selection.target),
+  )) {
+    const result = await materializeConfigportInstructions({
+      outputPath: tempRootPath,
+      pack: selection.pack,
+      packRootPath: tempRootPath,
+      profile: selection.profile,
+      scope: selection.scope,
+      stateRootPath,
+      target: selection.target,
+    });
+
+    diagnostics.push(...result.diagnostics);
+  }
+
   return diagnostics;
 }
 
@@ -237,6 +303,76 @@ async function compareGeneratedOutputs(
   }
 
   return diagnostics;
+}
+
+async function compareConfigportInstructionOutputs(
+  rootPath: string,
+  tempRootPath: string,
+  outputs: readonly LockedOutput[],
+  decisions: readonly string[],
+): Promise<Diagnostic[]> {
+  const stateResult = await readConfigportState(join(rootPath, ".configport"));
+
+  if (stateResult.status === "error") {
+    return [];
+  }
+
+  const targetSet = configportEnabledTargets(outputs, decisions);
+  const outputPaths = new Set(
+    stateResult.state.instructionSelections
+      .filter((selection) => targetSet.has(selection.target))
+      .map((selection) => (selection.target === "claude" ? "CLAUDE.md" : "AGENTS.md")),
+  );
+  const diagnostics: Diagnostic[] = [];
+
+  for (const outputPath of outputPaths) {
+    const expectedPath = join(tempRootPath, outputPath);
+    const currentPath = join(rootPath, outputPath);
+    const expected = await readOptionalFile(expectedPath);
+    const current = await readOptionalFile(currentPath);
+
+    if (expected === undefined) {
+      continue;
+    }
+
+    if (current === undefined) {
+      diagnostics.push({
+        code: "configport-instruction-drift",
+        message: "Configport instruction output expected by current selections is missing.",
+        path: currentPath,
+        severity: "error",
+      });
+      continue;
+    }
+
+    if (!current.equals(expected)) {
+      diagnostics.push({
+        code: "configport-instruction-drift",
+        message: "Configport instruction output differs from current configport selections.",
+        path: currentPath,
+        severity: "error",
+      });
+    }
+  }
+
+  return diagnostics;
+}
+
+function configportEnabledTargets(
+  outputs: readonly LockedOutput[],
+  decisions: readonly string[],
+): Set<string> {
+  if (decisions.includes(GENERATE_NO_CONFIGPORT_DECISION)) {
+    return new Set();
+  }
+
+  return new Set(
+    outputs
+      .map((output) => output.target)
+      .filter(
+        (target) => !decisions.includes(`${GENERATE_NO_CONFIGPORT_DECISION_PREFIX}${target}`),
+      ),
+  );
 }
 
 async function readOptionalFile(path: string): Promise<Buffer | undefined> {

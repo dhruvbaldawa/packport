@@ -13,6 +13,16 @@
       "description": "configport control skills for local agent-pack configuration",
       "name": "configport",
       "source": ".packs/claude/configport"
+    },
+    {
+      "description": "Configport control workflows for local agent-pack configuration.",
+      "name": "configport-control",
+      "source": ".packs/claude/configport-control"
+    },
+    {
+      "description": "packport control workflows for authoring, migration, validation, generation, and release.",
+      "name": "packport-control",
+      "source": ".packs/claude/packport-control"
     }
   ]
 }

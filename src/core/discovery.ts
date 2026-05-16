@@ -2,7 +2,7 @@
 // ABOUTME: Builds a lightweight index while keeping payload files opaque.
 
 import { lstat, readdir, readFile } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { validateKnownPortableRefs } from "./harness-refs";
 import { parseMarkdownContract } from "./markdown";
 import { portableRefKey, scanPortableRefs } from "./refs";
@@ -182,6 +182,18 @@ async function discoverAsset(
     diagnostics,
   );
   const payloadPaths = payloadRelativePaths.map((payloadPath) => join(directoryPath, payloadPath));
+  const skippedSupportPaths = new Set(
+    [
+      join(directoryPath, "ASSET.md"),
+      ...payloadPaths,
+      join(directoryPath, convention.payloadFile),
+    ].map((path) => resolve(path)),
+  );
+  const supportPaths = await discoverAssetSupportPaths(
+    directoryPath,
+    skippedSupportPaths,
+    diagnostics,
+  );
   const declaredRefs =
     parsedContract === undefined
       ? []
@@ -223,7 +235,45 @@ async function discoverAsset(
     name: assetName,
     payloadPaths,
     payloadRefs,
+    supportPaths,
   };
+}
+
+/** Discovers regular support files without making authors list them in ASSET.md. */
+async function discoverAssetSupportPaths(
+  currentPath: string,
+  skippedPaths: Set<string>,
+  diagnostics: Diagnostic[],
+): Promise<string[]> {
+  const supportPaths: string[] = [];
+  const entries = await readdir(currentPath, { withFileTypes: true });
+
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const entryPath = join(currentPath, entry.name);
+
+    if (skippedPaths.has(resolve(entryPath))) {
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      supportPaths.push(...(await discoverAssetSupportPaths(entryPath, skippedPaths, diagnostics)));
+      continue;
+    }
+
+    if (entry.isFile()) {
+      supportPaths.push(entryPath);
+      continue;
+    }
+
+    diagnostics.push({
+      code: "unsupported-asset-support",
+      message: "Asset support entries must be regular files or directories.",
+      path: entryPath,
+      severity: "warning",
+    });
+  }
+
+  return supportPaths.sort((left, right) => left.localeCompare(right));
 }
 
 /** Collects portable ref declarations from control-plane Markdown sections. */

@@ -85,6 +85,35 @@ describe("pack.lock.yaml", () => {
     });
   });
 
+  test("locks and detects changed asset support files", async () => {
+    const rootPath = await createValidPackRepository();
+    await mkdir(join(rootPath, "packs/essentials/commands/commit/reference"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(rootPath, "packs/essentials/commands/commit/reference/examples.md"),
+      "# Examples\n",
+    );
+    const discovery = await discoverPackRepository(rootPath);
+    const lock = await createPackLock(rootPath, discovery.index, "0.0.0");
+
+    expect(serializePackLock(lock)).toContain(
+      "path: packs/essentials/commands/commit/reference/examples.md",
+    );
+
+    await writeFile(
+      join(rootPath, "packs/essentials/commands/commit/reference/examples.md"),
+      "# Changed\n",
+    );
+
+    expect(await detectLockDrift(rootPath, lock, discovery.index)).toContainEqual({
+      code: "source-drift",
+      message: "Locked source file hash differs from current contents.",
+      path: join(rootPath, "packs/essentials/commands/commit/reference/examples.md"),
+      severity: "error",
+    });
+  });
+
   test("detects missing locked source files", async () => {
     const rootPath = await createValidPackRepository();
     const discovery = await discoverPackRepository(rootPath);
